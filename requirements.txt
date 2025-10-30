@@ -1,0 +1,6 @@
+kivy==2.3.0
+kivymd==1.2.0
+APScheduler==3.10.4
+plyer==2.1.0
+pydantic==2.5.0
+matplotlib==3.8.2

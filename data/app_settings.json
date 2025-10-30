@@ -1,0 +1,7 @@
+{
+    "theme": "Dark",
+    "notification_sound": "default",
+    "progress_threshold": 60,
+    "reminder_interval": 30,
+    "motivational_mode": true
+}
