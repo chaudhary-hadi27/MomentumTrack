@@ -1,11 +1,16 @@
+"""
+MomentumTrack - Updated Home Screen (Phase 2)
+Integrates goals and progress navigation
+"""
+
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.card import MDCard
-from kivymd.uix.button import MDRaisedButton, MDIconButton, MDFillRoundFlatButton
+from kivymd.uix.button import MDIconButton, MDFillRoundFlatButton
 from kivymd.uix.label import MDLabel, MDIcon
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.scrollview import ScrollView
 from kivy.metrics import dp
-from kivy.graphics import Color, RoundedRectangle
 from datetime import datetime
 
 
@@ -15,9 +20,8 @@ class HomeScreen(MDScreen):
         self.build_ui()
 
     def build_ui(self):
-        """Build modern home screen UI"""
+        """Build modern home screen UI with Phase 2 features"""
         # Main scrollable layout
-        from kivy.uix.scrollview import ScrollView
         scroll = ScrollView()
         layout = BoxLayout(orientation='vertical', padding=dp(16), spacing=dp(16), size_hint_y=None)
         layout.bind(minimum_height=layout.setter('height'))
@@ -42,12 +46,16 @@ class HomeScreen(MDScreen):
 
         action_buttons = self.create_action_buttons()
 
+        # Motivational message card
+        motivation_card = self.create_motivation_card()
+
         # Add all to layout
         layout.add_widget(header)
         layout.add_widget(welcome_card)
         layout.add_widget(stats_grid)
         layout.add_widget(actions_title)
         layout.add_widget(action_buttons)
+        layout.add_widget(motivation_card)
 
         scroll.add_widget(layout)
         self.add_widget(scroll)
@@ -152,7 +160,7 @@ class HomeScreen(MDScreen):
             color=(0.2, 0.6, 0.9, 1)
         )
 
-        # Streak Card (placeholder for now)
+        # Streak Card
         streak_card = self.create_stat_card(
             icon="fire",
             value="3 days",
@@ -160,10 +168,11 @@ class HomeScreen(MDScreen):
             color=(0.9, 0.4, 0.2, 1)
         )
 
-        # Goals Card (placeholder for now)
+        # Goals Card
+        active_goals = self.get_active_goals()
         goals_card = self.create_stat_card(
             icon="target",
-            value="2 active",
+            value=f"{active_goals} active",
             label="Goals",
             color=(0.6, 0.3, 0.8, 1)
         )
@@ -222,7 +231,7 @@ class HomeScreen(MDScreen):
 
     def create_action_buttons(self):
         """Create quick action buttons"""
-        btn_layout = BoxLayout(orientation='vertical', spacing=dp(12), size_hint_y=None, height=dp(180))
+        btn_layout = BoxLayout(orientation='vertical', spacing=dp(12), size_hint_y=None, height=dp(240))
 
         # My Tasks Button
         tasks_btn = MDFillRoundFlatButton(
@@ -244,20 +253,75 @@ class HomeScreen(MDScreen):
             on_release=lambda x: self.go_to_time_tracker()
         )
 
-        # Goals Button
+        # Goals Button (NEW - Phase 2)
         goals_btn = MDFillRoundFlatButton(
             text="🎯  Long-term Goals",
             font_size="16sp",
             size_hint_y=None,
             height=dp(56),
-            md_bg_color=(0.6, 0.3, 0.8, 1)
+            md_bg_color=(0.6, 0.3, 0.8, 1),
+            on_release=lambda x: self.go_to_goals()
+        )
+
+        # Progress Button (NEW - Phase 2)
+        progress_btn = MDFillRoundFlatButton(
+            text="📊  Progress & Analytics",
+            font_size="16sp",
+            size_hint_y=None,
+            height=dp(56),
+            md_bg_color=(0.9, 0.6, 0.2, 1),
+            on_release=lambda x: self.go_to_progress()
         )
 
         btn_layout.add_widget(tasks_btn)
         btn_layout.add_widget(time_btn)
         btn_layout.add_widget(goals_btn)
+        btn_layout.add_widget(progress_btn)
 
         return btn_layout
+
+    def create_motivation_card(self):
+        """Create motivational message card (Phase 2)"""
+        card = MDCard(
+            orientation='vertical',
+            padding=dp(20),
+            size_hint_y=None,
+            height=dp(120),
+            elevation=2,
+            radius=[15, 15, 15, 15]
+        )
+
+        # Get motivational message
+        from kivymd.app import MDApp
+        app = MDApp.get_running_app()
+
+        try:
+            message = app.get_motivational_message('auto')
+        except:
+            message = "You're doing great! Keep going! 💪"
+
+        icon = MDIcon(
+            icon="lightbulb-outline",
+            size_hint_y=None,
+            height=dp(35),
+            theme_text_color="Custom",
+            text_color=(0.9, 0.6, 0.2, 1),
+            halign="center",
+            font_size="35sp"
+        )
+
+        message_label = MDLabel(
+            text=message,
+            font_style="Body1",
+            halign="center",
+            size_hint_y=None,
+            height=dp(50)
+        )
+
+        card.add_widget(icon)
+        card.add_widget(message_label)
+
+        return card
 
     def get_completion_rate(self):
         """Get task completion rate"""
@@ -288,6 +352,16 @@ class HomeScreen(MDScreen):
         except:
             return 0
 
+    def get_active_goals(self):
+        """Get number of active goals (Phase 2)"""
+        try:
+            from kivymd.app import MDApp
+            app = MDApp.get_running_app()
+            goals = app.db_manager.get_all_goals()
+            return len(goals)
+        except:
+            return 0
+
     def go_to_tasks(self):
         """Navigate to tasks screen"""
         self.manager.current = 'tasks'
@@ -296,10 +370,19 @@ class HomeScreen(MDScreen):
         """Navigate to time tracker screen"""
         self.manager.current = 'time_tracker'
 
+    def go_to_goals(self):
+        """Navigate to goals screen (Phase 2)"""
+        self.manager.current = 'goals'
+
+    def go_to_progress(self):
+        """Navigate to progress screen (Phase 2)"""
+        self.manager.current = 'progress'
+
     def go_to_settings(self):
         """Navigate to settings screen"""
         self.manager.current = 'settings'
 
     def on_enter(self):
         """Refresh stats when entering screen"""
+        # Rebuild stats to show updated values
         pass

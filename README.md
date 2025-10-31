@@ -2,9 +2,8 @@
 
 <div align="center">
 
-[//]: # (<img src="assets/images/banner.png" alt="MomentumTrack Banner" width="100%">)
+<img src="assets/images/banner.png" alt="MomentumTrack Banner" width="100%">
 
-**Your Intelligent Productivity Companion**
 
 *More than a todo list - it's your friend in productivity, discipline, and growth*
 
