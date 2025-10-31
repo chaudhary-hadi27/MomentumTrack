@@ -1,0 +1,26 @@
+# Ignore PyCharm / IntelliJ project settings
+.idea/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore virtual environments
+venv/
+.env/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore logs
+*.log
+
+# Ignore environment files
+*.env
+
+# Ignore build directories
+build/
+dist/
+*.egg-info/
