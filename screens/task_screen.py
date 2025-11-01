@@ -1,31 +1,124 @@
 """
-Enhanced Task Screen (FULLY FIXED)
-✅ NO MDChip (replaced with MDFlatButton)
-✅ NO MDSwitch (replaced with MDCheckbox)
-✅ Complete error handling
+Enhanced Task Screen - Phase 1 & 2 (FIXED)
+✅ No text wrapping issues
+✅ Instant delete (no confirmation)
+✅ Checkbox-style completion (click circle)
 """
 
 from kivymd.uix.screen import MDScreen
-from kivymd.uix.card import MDCard
-from kivymd.uix.button import MDRaisedButton, MDIconButton, MDFlatButton, MDFillRoundFlatIconButton
-from kivymd.uix.label import MDLabel, MDIcon
-from kivymd.uix.textfield import MDTextField
 from kivymd.uix.dialog import MDDialog
+from kivymd.uix.pickers import MDDatePicker
 from kivymd.uix.selectioncontrol import MDCheckbox
 from kivymd.uix.menu import MDDropdownMenu
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.metrics import dp
-from datetime import datetime, timedelta
+from kivy.animation import Animation
+from kivy.graphics import Color, Line, Ellipse
+from kivy.uix.widget import Widget
+from datetime import datetime
+from kivymd.app import MDApp
+from kivymd.toast import toast
+
+# Import custom components
+from widgets.components import (
+    MCard, MButton, MIconButton, MLabel, MIcon,
+    MTextField, MChip, MDivider, MEmptyState
+)
+from config.theme import ThemeConfig
+
+
+class CheckboxCircle(Widget):
+    """Custom checkbox circle widget"""
+
+    def __init__(self, is_checked=False, on_toggle=None, **kwargs):
+        super().__init__(**kwargs)
+        self.is_checked = is_checked
+        self.on_toggle_callback = on_toggle
+
+        self.size_hint = (None, None)
+        self.size = (dp(32), dp(32))
+
+        self.bind(pos=self.update_canvas, size=self.update_canvas)
+        self.update_canvas()
+
+    def update_canvas(self, *args):
+        """Draw the checkbox circle"""
+        self.canvas.clear()
+
+        # Get theme colors
+        app = MDApp.get_running_app()
+        theme_mode = app.theme_cls.theme_style
+        colors = ThemeConfig.get_theme_colors(theme_mode)
+
+        with self.canvas:
+            # Outer circle (border)
+            if self.is_checked:
+                Color(*colors['success'])
+            else:
+                Color(*colors['text_secondary'])
+
+            Line(
+                circle=(self.center_x, self.center_y, dp(14)),
+                width=2
+            )
+
+            # Inner filled circle (when checked)
+            if self.is_checked:
+                Color(*colors['success'])
+                Ellipse(
+                    pos=(self.center_x - dp(9), self.center_y - dp(9)),
+                    size=(dp(18), dp(18))
+                )
+
+                # Checkmark (white)
+                Color(1, 1, 1, 1)
+                # Draw checkmark using lines
+                Line(
+                    points=[
+                        self.center_x - dp(5), self.center_y,
+                        self.center_x - dp(1), self.center_y - dp(4),
+                        self.center_x + dp(6), self.center_y + dp(5)
+                    ],
+                    width=2.5
+                )
+
+    def on_touch_down(self, touch):
+        """Handle touch/click"""
+        if self.collide_point(*touch.pos):
+            self.is_checked = not self.is_checked
+            self.update_canvas()
+
+            # Animate scale
+            anim = Animation(size=(dp(36), dp(36)), duration=0.1) + \
+                   Animation(size=(dp(32), dp(32)), duration=0.1)
+            anim.start(self)
+
+            # Call callback
+            if self.on_toggle_callback:
+                self.on_toggle_callback(self.is_checked)
+
+            return True
+        return super().on_touch_down(touch)
 
 
 class EnhancedTaskScreen(MDScreen):
-    """Enhanced task management - FULLY COMPATIBLE"""
+    """Enhanced task management with fixed issues"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.dialog = None
-        self.duration_type = 'today'
+
+        # State
+        self.selected_date = None
+        self.search_query = ""
+        self.active_filters = {
+            'status': 'all',
+            'category': 'all',
+            'priority': 'all',
+            'duration': 'all'
+        }
+
+        # Motivational quotes
         self.motivational_quotes = [
             "Success is the sum of small efforts repeated day in and day out. 💪",
             "The secret of getting ahead is getting started. 🚀",
@@ -33,49 +126,56 @@ class EnhancedTaskScreen(MDScreen):
             "The only way to do great work is to love what you do. ❤️",
             "Focus on being productive instead of busy. 🎯",
             "Small progress is still progress. Keep moving! 🌟",
-            "You are capable of amazing things! 💫",
-            "Believe you can and you're halfway there. ⭐",
-            "Your limitation—it's only your imagination. 🌈",
-            "Push yourself, because no one else is going to do it. 💯"
         ]
         self.selected_quote = self.motivational_quotes[0]
+
+        # Dialog references
+        self.dialog = None
+        self.date_picker = None
+        self.quote_menu = None
+
         self.build_ui()
 
     def build_ui(self):
         """Build enhanced task screen UI"""
-        layout = BoxLayout(orientation='vertical', spacing=dp(12))
+        layout = BoxLayout(orientation='vertical', spacing=dp(0))
 
-        # Header with back button
+        # Header
         header = self.create_header()
 
-        # Duration filter buttons (NO CHIPS)
-        filter_section = self.create_duration_filters()
+        # Search bar
+        search_bar = self.create_search_bar()
 
-        # Task list with scroll
+        # Filter chips
+        filter_section = self.create_filter_section()
+
+        # Task list
         scroll = ScrollView()
         self.task_list = BoxLayout(
             orientation='vertical',
-            spacing=dp(12),
-            padding=dp(16),
+            spacing=ThemeConfig.SPACING['md'],
+            padding=ThemeConfig.SPACING['md'],
             size_hint_y=None
         )
         self.task_list.bind(minimum_height=self.task_list.setter('height'))
         scroll.add_widget(self.task_list)
 
         # Add task button
-        add_btn_container = BoxLayout(size_hint_y=None, height=dp(70), padding=dp(16))
-        self.add_task_btn = MDFillRoundFlatIconButton(
-            icon="plus",
-            text="Add New Task",
-            font_size="16sp",
-            size_hint=(1, None),
-            height=dp(56),
-            md_bg_color=(0.2, 0.6, 0.9, 1),
-            on_release=lambda x: self.show_add_task_dialog()
+        add_btn_container = BoxLayout(
+            size_hint_y=None,
+            height=dp(80),
+            padding=ThemeConfig.SPACING['md']
         )
+        self.add_task_btn = MButton(
+            text="+ Add New Task",
+            variant='primary',
+            size='large'
+        )
+        self.add_task_btn.bind(on_release=lambda x: self.show_add_task_dialog())
         add_btn_container.add_widget(self.add_task_btn)
 
         layout.add_widget(header)
+        layout.add_widget(search_bar)
         layout.add_widget(filter_section)
         layout.add_widget(scroll)
         layout.add_widget(add_btn_container)
@@ -87,308 +187,368 @@ class EnhancedTaskScreen(MDScreen):
         header = BoxLayout(
             orientation='horizontal',
             size_hint_y=None,
-            height=dp(70),
-            padding=[dp(16), dp(8), dp(16), dp(8)]
+            height=ThemeConfig.SIZING['header_height'],
+            padding=[ThemeConfig.SPACING['md'], dp(8), ThemeConfig.SPACING['md'], dp(8)]
         )
 
-        back_btn = MDIconButton(
+        back_btn = MIconButton(
             icon="arrow-left",
-            pos_hint={"center_y": 0.5},
-            icon_size="28sp",
-            on_release=lambda x: self.go_back()
+            icon_size='large',
+            pos_hint={"center_y": 0.5}
         )
+        back_btn.bind(on_release=lambda x: self.go_back())
 
         title_box = BoxLayout(orientation='vertical', size_hint_x=0.7)
-        title = MDLabel(
+
+        title = MLabel(
             text="My Tasks",
-            font_style="H5",
-            bold=True
+            variant='h5',
+            color_variant='primary'
         )
-        subtitle = MDLabel(
-            text="Scheduled & Organized",
-            font_style="Caption",
-            theme_text_color="Secondary"
+        title.size_hint_y = None
+        title.height = dp(35)
+
+        subtitle = MLabel(
+            text="Organized & Scheduled",
+            variant='caption',
+            color_variant='secondary'
         )
+        subtitle.size_hint_y = None
+        subtitle.height = dp(25)
+
         title_box.add_widget(title)
         title_box.add_widget(subtitle)
 
+        # Calendar button
+        calendar_btn = MIconButton(
+            icon="calendar",
+            icon_size='large',
+            pos_hint={"center_y": 0.5}
+        )
+        calendar_btn.bind(on_release=lambda x: self.show_date_picker())
+
         header.add_widget(back_btn)
         header.add_widget(title_box)
+        header.add_widget(calendar_btn)
 
         return header
 
-    def create_duration_filters(self):
-        """✅ FIX #2: Using MDFlatButton instead of MDChip"""
-        filter_container = BoxLayout(
+    def create_search_bar(self):
+        """Create search bar"""
+        container = BoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(70),
+            padding=[ThemeConfig.SPACING['md'], dp(8), ThemeConfig.SPACING['md'], dp(8)],
+            spacing=ThemeConfig.SPACING['sm']
+        )
+
+        self.search_field = MTextField()
+        self.search_field.hint_text = "Search tasks..."
+        self.search_field.bind(text=self.on_search_text_change)
+
+        search_btn = MIconButton(
+            icon="magnify",
+            icon_size='medium'
+        )
+        search_btn.bind(on_release=lambda x: self.apply_filters())
+
+        container.add_widget(self.search_field)
+        container.add_widget(search_btn)
+
+        return container
+
+    def create_filter_section(self):
+        """Create filter chips section"""
+        container = BoxLayout(
             orientation='vertical',
             size_hint_y=None,
             height=dp(100),
-            padding=[dp(16), 0, dp(16), 0],
-            spacing=dp(8)
+            padding=[ThemeConfig.SPACING['md'], 0, ThemeConfig.SPACING['md'], dp(8)],
+            spacing=ThemeConfig.SPACING['sm']
         )
 
-        title = MDLabel(
-            text="Filter by Duration:",
-            font_style="Caption",
+        label = MLabel(
+            text="Filters:",
+            variant='caption',
+            color_variant='secondary'
+        )
+        label.size_hint_y = None
+        label.height = dp(20)
+
+        # Filter chips in horizontal scroll
+        from kivy.uix.scrollview import ScrollView
+        scroll = ScrollView(
             size_hint_y=None,
-            height=dp(20)
+            height=dp(40),
+            do_scroll_x=True,
+            do_scroll_y=False
         )
 
-        buttons_box = BoxLayout(
+        chips_container = BoxLayout(
             orientation='horizontal',
-            size_hint_y=None,
-            height=dp(48),
-            spacing=dp(8)
+            size_hint_x=None,
+            spacing=ThemeConfig.SPACING['sm']
         )
+        chips_container.bind(minimum_width=chips_container.setter('width'))
 
-        filters = [
-            ('All', None),
-            ('Today', 'today'),
-            ('Week', 'week'),
-            ('Month', 'month')
-        ]
-
-        for filter_name, filter_value in filters:
-            btn = MDFlatButton(
-                text=filter_name,
-                size_hint_x=0.25,
-                on_release=lambda x, f=filter_value, n=filter_name: self.apply_filter(f, n)
+        # Status filters
+        status_filters = ['All', 'Pending', 'Completed']
+        for status in status_filters:
+            chip = MChip(
+                text=status,
+                color='primary' if self.active_filters['status'] == status.lower() else 'bg_secondary'
             )
-            buttons_box.add_widget(btn)
+            chip.bind(on_touch_down=lambda instance, touch, s=status: self.filter_by_status(s) if instance.collide_point(*touch.pos) else None)
+            chips_container.add_widget(chip)
 
-        filter_container.add_widget(title)
-        filter_container.add_widget(buttons_box)
+        # Duration filters
+        duration_filters = ['Today', 'Week', 'Month']
+        for duration in duration_filters:
+            chip = MChip(
+                text=duration,
+                color='secondary' if self.active_filters['duration'] == duration.lower() else 'bg_secondary'
+            )
+            chip.bind(on_touch_down=lambda instance, touch, d=duration: self.filter_by_duration(d) if instance.collide_point(*touch.pos) else None)
+            chips_container.add_widget(chip)
 
-        return filter_container
+        scroll.add_widget(chips_container)
 
-    def apply_filter(self, filter_value, filter_name):
-        """Apply duration filter to task list"""
-        from kivymd.toast import toast
-        toast(f"Showing: {filter_name}")
-        self.load_tasks(duration_filter=filter_value)
+        container.add_widget(label)
+        container.add_widget(scroll)
 
-    def on_enter(self):
-        """Called when screen is entered"""
-        self.load_tasks()
+        return container
 
-    def load_tasks(self, duration_filter=None):
-        """Load tasks from database with error handling"""
+    def on_search_text_change(self, instance, value):
+        """Handle search text change"""
+        self.search_query = value.lower()
+        self.apply_filters()
+
+    def filter_by_status(self, status):
+        """Filter by task status"""
+        self.active_filters['status'] = status.lower()
+        toast(f"Filter: {status}")
+        self.apply_filters()
+
+    def filter_by_duration(self, duration):
+        """Filter by duration"""
+        self.active_filters['duration'] = duration.lower()
+        toast(f"Duration: {duration}")
+        self.apply_filters()
+
+    def apply_filters(self):
+        """Apply all active filters"""
+        app = MDApp.get_running_app()
+
+        # Get tasks based on filters
+        status = self.active_filters['status'] if self.active_filters['status'] != 'all' else None
+        duration = self.active_filters['duration'] if self.active_filters['duration'] != 'all' else None
+
+        tasks = app.db_manager.get_all_tasks(status=status, duration_filter=duration)
+
+        # Apply search filter
+        if self.search_query:
+            tasks = [t for t in tasks if self.search_query in t[1].lower() or (t[2] and self.search_query in t[2].lower())]
+
+        # Apply date filter
+        if self.selected_date:
+            tasks = [t for t in tasks if t[15][:10] == self.selected_date]  # created_at date
+
+        self.display_tasks(tasks)
+
+    def display_tasks(self, tasks):
+        """Display filtered tasks"""
         self.task_list.clear_widgets()
 
-        try:
-            from kivymd.app import MDApp
-            app = MDApp.get_running_app()
-            tasks = app.db_manager.get_all_tasks(duration_filter=duration_filter)
+        if not tasks:
+            empty_state = MEmptyState(
+                icon="calendar-clock",
+                title="No Tasks Found",
+                subtitle="Try adjusting your filters or\ncreate a new task!"
+            )
+            self.task_list.add_widget(empty_state)
+            return
 
-            if not tasks:
-                empty_card = self.create_empty_state()
-                self.task_list.add_widget(empty_card)
-                return
+        for task in tasks:
+            task_id = task[0]
+            title = task[1]
+            desc = task[2] if task[2] else ""
+            category = task[3]
+            priority = task[4]
+            status = task[5]
+            start_time = task[6]
+            end_time = task[7] if task[7] else None
+            duration_type = task[8]
+            motivational_quote = task[10] if len(task) > 10 and task[10] else ""
 
-            for task in tasks:
-                task_id = task[0]
-                title = task[1]
-                desc = task[2]
-                category = task[3]
-                priority = task[4]
-                status = task[5]
-                start_time = task[6]
-                end_time = task[7]
-                duration_type = task[8]
-                motivational_quote = task[10] if len(task) > 10 else ""
+            task_card = self.create_task_card(
+                task_id, title, desc, category, priority, status,
+                start_time, end_time, duration_type, motivational_quote
+            )
+            self.task_list.add_widget(task_card)
 
-                task_card = self.create_task_card(
-                    task_id, title, desc, category, priority, status,
-                    start_time, end_time, duration_type, motivational_quote
-                )
-                self.task_list.add_widget(task_card)
-        except Exception as e:
-            print(f"❌ Error loading tasks: {e}")
-            import traceback
-            traceback.print_exc()
-            from kivymd.toast import toast
-            toast("Error loading tasks")
-
-    def create_empty_state(self):
-        """Create empty state card"""
-        card = MDCard(
-            orientation='vertical',
-            padding=dp(40),
-            size_hint_y=None,
-            height=dp(250),
-            elevation=0
-        )
-
-        icon = MDIcon(
-            icon="calendar-clock",
-            size_hint_y=None,
-            height=dp(80),
-            theme_text_color="Secondary",
-            halign="center",
-            font_size="80sp"
-        )
-
-        title = MDLabel(
-            text="No Tasks Scheduled",
-            font_style="H6",
-            halign="center",
-            size_hint_y=None,
-            height=dp(40)
-        )
-
-        subtitle = MDLabel(
-            text="Create your first task with\nstart time and get organized!",
-            font_style="Body2",
-            theme_text_color="Secondary",
-            halign="center",
-            size_hint_y=None,
-            height=dp(60)
-        )
-
-        card.add_widget(icon)
-        card.add_widget(title)
-        card.add_widget(subtitle)
-
-        return card
+            # Animate card appearance
+            task_card.opacity = 0
+            anim = Animation(opacity=1, duration=0.3, t='out_cubic')
+            anim.start(task_card)
 
     def create_task_card(self, task_id, title, desc, category, priority, status,
                          start_time, end_time, duration_type, motivational_quote):
-        """✅ FIX #2: NO MDChip - using labels instead"""
-        card = MDCard(
-            orientation='vertical',
-            padding=dp(16),
+        """Create enhanced task card with checkbox and instant delete"""
+        app = MDApp.get_running_app()
+        theme_mode = app.theme_cls.theme_style
+        colors = ThemeConfig.get_theme_colors(theme_mode)
+
+        card = MCard(variant='elevated')
+        card.orientation = 'vertical'
+        card.size_hint_y = None
+        card.height = dp(200) if motivational_quote else dp(160)
+        card.padding = ThemeConfig.SPACING['md']
+        card.spacing = ThemeConfig.SPACING['sm']
+
+        # Top row: checkbox, title, delete
+        top_row = BoxLayout(
+            orientation='horizontal',
             size_hint_y=None,
-            height=dp(200) if motivational_quote else dp(160),
-            elevation=3,
-            radius=[15, 15, 15, 15]
+            height=dp(40),
+            spacing=ThemeConfig.SPACING['sm']
         )
 
-        # Top row: status icon, title, delete
-        top_row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(35), spacing=dp(12))
+        # ✅ FIXED: Checkbox circle for completion
+        checkbox = CheckboxCircle(
+            is_checked=(status == 'completed'),
+            on_toggle=lambda checked: self.toggle_task_completion(task_id, checked)
+        )
+        checkbox.size_hint_x = None
+        checkbox.width = dp(40)
 
-        if status == 'completed':
-            status_icon = MDIcon(
-                icon="check-circle",
-                theme_text_color="Custom",
-                text_color=(0.2, 0.7, 0.3, 1),
-                size_hint_x=None,
-                width=dp(30)
-            )
-        else:
-            status_icon = MDIcon(
-                icon="clock-outline",
-                theme_text_color="Custom",
-                text_color=(0.2, 0.6, 0.9, 1),
-                size_hint_x=None,
-                width=dp(30)
-            )
-
-        title_label = MDLabel(
+        # ✅ FIXED: Title with text_size to prevent wrapping
+        title_label = MLabel(
             text=title,
-            font_style="Subtitle1",
-            bold=True,
-            size_hint_x=0.6
+            variant='h6',
+            color_variant='primary'
         )
+        title_label.size_hint_x = 0.55
+        title_label.text_size = (None, None)  # Prevent text wrapping
+        title_label.shorten = True  # Enable ellipsis
+        title_label.shorten_from = 'right'
 
-        delete_btn = MDIconButton(
+        # ✅ FIXED: Instant delete (no confirmation)
+        delete_btn = MIconButton(
             icon="delete-outline",
-            theme_text_color="Secondary",
-            icon_size="24sp",
-            size_hint_x=None,
-            width=dp(40),
-            on_release=lambda x: self.confirm_delete(task_id)
+            icon_size='medium'
         )
+        delete_btn.size_hint_x = None
+        delete_btn.width = dp(40)
+        delete_btn.bind(on_release=lambda x: self.delete_task_instant(task_id))
 
-        top_row.add_widget(status_icon)
+        top_row.add_widget(checkbox)
         top_row.add_widget(title_label)
         top_row.add_widget(delete_btn)
 
-        # Time row
-        time_row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(30), spacing=dp(8))
+        # Description (if exists)
+        if desc:
+            desc_label = MLabel(
+                text=desc[:80] + "..." if len(desc) > 80 else desc,
+                variant='body2',
+                color_variant='secondary'
+            )
+            desc_label.size_hint_y = None
+            desc_label.height = dp(35)
+            desc_label.text_size = (None, None)
+            desc_label.shorten = True
+            desc_label.shorten_from = 'right'
+        else:
+            desc_label = BoxLayout(size_hint_y=None, height=dp(5))
 
-        time_icon = MDIcon(
-            icon="clock-time-four",
-            size_hint_x=None,
-            width=dp(20),
-            theme_text_color="Secondary",
-            font_size="20sp"
+        # ✅ FIXED: Time row with proper text handling
+        time_row = BoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(30),
+            spacing=ThemeConfig.SPACING['sm']
         )
 
-        time_text = f"⏰ {start_time}"
+        time_icon = MIcon(
+            icon="clock-time-four",
+            icon_size='small'
+        )
+        time_icon.size_hint_x = None
+        time_icon.width = dp(25)
+
+        time_text = f"{start_time}"
         if end_time:
             time_text += f" - {end_time}"
-        time_text += f"  •  {duration_type.capitalize()}"
+        time_text += f"  •  {duration_type}"
 
-        time_label = MDLabel(
+        time_label = MLabel(
             text=time_text,
-            font_style="Caption",
-            theme_text_color="Secondary"
+            variant='caption',
+            color_variant='secondary'
         )
+        time_label.text_size = (None, None)
+        time_label.shorten = True
+        time_label.shorten_from = 'right'
 
         time_row.add_widget(time_icon)
         time_row.add_widget(time_label)
 
-        # Motivational quote row
+        # Motivational quote (if exists)
         if motivational_quote:
-            quote_row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(45), spacing=dp(8))
+            quote_row = BoxLayout(
+                orientation='horizontal',
+                size_hint_y=None,
+                height=dp(40),
+                spacing=ThemeConfig.SPACING['sm']
+            )
 
-            quote_icon = MDIcon(
+            quote_icon = MIcon(
                 icon="format-quote-open",
-                size_hint_x=None,
-                width=dp(20),
-                theme_text_color="Custom",
-                text_color=(0.9, 0.6, 0.2, 1),
-                font_size="20sp"
+                icon_size='small'
             )
+            quote_icon.text_color = colors['accent']
+            quote_icon.size_hint_x = None
+            quote_icon.width = dp(25)
 
-            quote_label = MDLabel(
-                text=motivational_quote[:80] + "..." if len(motivational_quote) > 80 else motivational_quote,
-                font_style="Caption",
-                italic=True,
-                theme_text_color="Custom",
-                text_color=(0.9, 0.6, 0.2, 1)
+            quote_label = MLabel(
+                text=motivational_quote[:70] + "..." if len(motivational_quote) > 70 else motivational_quote,
+                variant='caption',
+                color_variant='secondary'
             )
+            quote_label.italic = True
+            quote_label.text_size = (None, None)
+            quote_label.shorten = True
+            quote_label.shorten_from = 'right'
 
             quote_row.add_widget(quote_icon)
             quote_row.add_widget(quote_label)
 
-        # Bottom row: Using LABELS instead of chips
-        bottom_row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(8))
-
-        category_label = MDLabel(
-            text=f"📁 {category.capitalize()}",
-            font_style="Caption",
-            size_hint_x=0.3
+        # Bottom row: chips
+        bottom_row = BoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(36),
+            spacing=ThemeConfig.SPACING['sm']
         )
 
-        priority_label = MDLabel(
-            text=f"⭐ {priority.capitalize()}",
-            font_style="Caption",
-            size_hint_x=0.3
+        # Category chip
+        category_chip = MChip(
+            text=f"{category[:8]}",  # Limit length
+            color='category_' + category
         )
 
-        if status == 'pending':
-            complete_btn = MDFlatButton(
-                text="✓ Complete",
-                theme_text_color="Custom",
-                text_color=(0.2, 0.7, 0.3, 1),
-                on_release=lambda x: self.complete_task(task_id)
-            )
-        else:
-            complete_btn = MDLabel(
-                text="✓ Completed",
-                font_style="Caption",
-                theme_text_color="Custom",
-                text_color=(0.2, 0.7, 0.3, 1),
-                halign="right"
-            )
+        # Priority chip
+        priority_chip = MChip(
+            text=f"⭐ {priority[:3]}",  # Limit length
+            color='priority_' + priority
+        )
 
-        bottom_row.add_widget(category_label)
-        bottom_row.add_widget(priority_label)
-        bottom_row.add_widget(complete_btn)
+        bottom_row.add_widget(category_chip)
+        bottom_row.add_widget(priority_chip)
 
         # Add all to card
         card.add_widget(top_row)
+        card.add_widget(desc_label)
         card.add_widget(time_row)
         if motivational_quote:
             card.add_widget(quote_row)
@@ -396,129 +556,90 @@ class EnhancedTaskScreen(MDScreen):
 
         return card
 
+    def toggle_task_completion(self, task_id, is_checked):
+        """Toggle task completion (instant)"""
+        app = MDApp.get_running_app()
+        new_status = 'completed' if is_checked else 'pending'
+        app.db_manager.update_task_status(task_id, new_status)
+
+        if is_checked:
+            toast("✓ Task completed! 🎉")
+        else:
+            toast("Task marked as pending")
+
+        # Refresh list
+        self.apply_filters()
+
+    def delete_task_instant(self, task_id):
+        """Delete task instantly (no confirmation)"""
+        app = MDApp.get_running_app()
+        app.db_manager.delete_task(task_id)
+
+        toast("Task deleted")
+
+        # Refresh list
+        self.apply_filters()
+
+    def show_date_picker(self):
+        """Show calendar date picker"""
+        self.date_picker = MDDatePicker()
+        self.date_picker.bind(on_save=self.on_date_selected)
+        self.date_picker.open()
+
+    def on_date_selected(self, instance, value, date_range):
+        """Handle date selection"""
+        self.selected_date = str(value)
+        toast(f"Filter by date: {value}")
+        self.apply_filters()
+
     def show_add_task_dialog(self):
-        """✅ FIX #3: Using MDCheckbox instead of MDSwitch"""
+        """Show add task dialog"""
         content = BoxLayout(
             orientation='vertical',
-            spacing=dp(12),
-            padding=dp(10),
+            spacing=ThemeConfig.SPACING['md'],
+            padding=ThemeConfig.SPACING['sm'],
             size_hint_y=None,
-            height=dp(480)
+            height=dp(450)
         )
 
-        # Title field
-        self.title_field = MDTextField(
-            hint_text="Task Title *",
-            required=True,
-            mode="rectangle"
-        )
+        # Title
+        self.title_field = MTextField()
+        self.title_field.hint_text = "Task Title *"
 
-        # Description field
-        self.desc_field = MDTextField(
-            hint_text="Description (optional)",
-            multiline=True,
-            mode="rectangle"
-        )
+        # Description
+        self.desc_field = MTextField()
+        self.desc_field.hint_text = "Description (optional)"
+        self.desc_field.multiline = True
 
-        # Start Time
-        time_label = MDLabel(
+        # Start time
+        time_label = MLabel(
             text="⏰ Start Time (Required)",
-            font_style="Caption",
-            size_hint_y=None,
-            height=dp(20),
-            bold=True
+            variant='caption',
+            color_variant='primary'
         )
+        time_label.size_hint_y = None
+        time_label.height = dp(25)
 
-        self.start_time_field = MDTextField(
-            hint_text="HH:MM (e.g., 09:00)",
-            required=True,
-            mode="rectangle",
-            text=datetime.now().strftime("%H:%M")
-        )
+        self.start_time_field = MTextField()
+        self.start_time_field.hint_text = "HH:MM (e.g., 09:00)"
+        self.start_time_field.text = datetime.now().strftime("%H:%M")
 
-        # End Time
-        self.end_time_field = MDTextField(
-            hint_text="End Time (optional, e.g., 10:30)",
-            mode="rectangle"
-        )
+        # End time
+        self.end_time_field = MTextField()
+        self.end_time_field.hint_text = "End Time (optional)"
 
-        # Duration Type
-        duration_label = MDLabel(
-            text="📅 Duration",
-            font_style="Caption",
-            size_hint_y=None,
-            height=dp(20),
-            bold=True
-        )
-
-        duration_buttons = BoxLayout(
-            orientation='horizontal',
-            size_hint_y=None,
-            height=dp(40),
-            spacing=dp(8)
-        )
-
-        durations = ['Today', 'Week', 'Month', 'Custom']
-        for dur in durations:
-            btn = MDFlatButton(
-                text=dur,
-                size_hint_x=0.25,
-                on_release=lambda x, d=dur.lower(): self.select_duration(d)
-            )
-            duration_buttons.add_widget(btn)
-
-        # Custom date field
-        self.custom_date_field = MDTextField(
-            hint_text="Custom End Date (YYYY-MM-DD)",
-            mode="rectangle",
-            disabled=True
-        )
-
-        # Motivational Quote
-        quote_label = MDLabel(
+        # Quote
+        quote_label = MLabel(
             text="💬 Motivational Quote",
-            font_style="Caption",
-            size_hint_y=None,
-            height=dp(20),
-            bold=True
+            variant='caption',
+            color_variant='primary'
         )
+        quote_label.size_hint_y = None
+        quote_label.height = dp(25)
 
-        self.quote_field = MDTextField(
-            text=self.selected_quote,
-            multiline=True,
-            mode="rectangle",
-            on_focus=lambda instance, value: self.show_quote_menu(instance) if value else None
-        )
-
-        # ✅ FIX #3: Using MDCheckbox instead of MDSwitch
-        reminder_row = BoxLayout(
-            orientation='horizontal',
-            size_hint_y=None,
-            height=dp(40),
-            spacing=dp(12)
-        )
-
-        reminder_label = MDLabel(
-            text="🔔 Enable Reminders",
-            font_style="Body2",
-            size_hint_x=0.7
-        )
-
-        self.reminder_checkbox = MDCheckbox(
-            size_hint=(None, None),
-            size=(dp(48), dp(48)),
-            active=True
-        )
-
-        reminder_row.add_widget(reminder_label)
-        reminder_row.add_widget(self.reminder_checkbox)
-
-        # Reminder Interval
-        self.reminder_interval_field = MDTextField(
-            hint_text="Reminder Interval (minutes, e.g., 30)",
-            mode="rectangle",
-            text="30"
-        )
+        self.quote_field = MTextField()
+        self.quote_field.text = self.selected_quote
+        self.quote_field.multiline = True
 
         # Add all to content
         content.add_widget(self.title_field)
@@ -526,81 +647,39 @@ class EnhancedTaskScreen(MDScreen):
         content.add_widget(time_label)
         content.add_widget(self.start_time_field)
         content.add_widget(self.end_time_field)
-        content.add_widget(duration_label)
-        content.add_widget(duration_buttons)
-        content.add_widget(self.custom_date_field)
         content.add_widget(quote_label)
         content.add_widget(self.quote_field)
-        content.add_widget(reminder_row)
-        content.add_widget(self.reminder_interval_field)
 
         self.dialog = MDDialog(
             title="✨ Add New Task",
             type="custom",
             content_cls=content,
             buttons=[
-                MDFlatButton(
-                    text="CANCEL",
-                    theme_text_color="Custom",
-                    text_color=(0.5, 0.5, 0.5, 1),
-                    on_release=lambda x: self.dialog.dismiss()
+                MButton(
+                    text="Cancel",
+                    variant='error',
+                    size='medium'
                 ),
-                MDRaisedButton(
-                    text="ADD TASK",
-                    md_bg_color=(0.2, 0.6, 0.9, 1),
-                    on_release=lambda x: self.add_task()
+                MButton(
+                    text="Add Task",
+                    variant='primary',
+                    size='medium'
                 )
             ]
         )
+
+        self.dialog.buttons[0].bind(on_release=lambda x: self.dialog.dismiss())
+        self.dialog.buttons[1].bind(on_release=lambda x: self.add_task())
+
         self.dialog.open()
 
-    def select_duration(self, duration):
-        """Handle duration selection"""
-        self.duration_type = duration
-
-        if duration == 'custom':
-            self.custom_date_field.disabled = False
-        else:
-            self.custom_date_field.disabled = True
-            self.custom_date_field.text = ""
-
-        from kivymd.toast import toast
-        toast(f"Duration: {duration.capitalize()}")
-
-    def show_quote_menu(self, text_field):
-        """Show menu to select motivational quote"""
-        menu_items = [
-            {
-                "text": quote[:50] + "...",
-                "viewclass": "OneLineListItem",
-                "on_release": lambda x=quote: self.select_quote(x, text_field)
-            }
-            for quote in self.motivational_quotes
-        ]
-
-        self.quote_menu = MDDropdownMenu(
-            caller=text_field,
-            items=menu_items,
-            width_mult=4
-        )
-        self.quote_menu.open()
-
-    def select_quote(self, quote, text_field):
-        """Select a motivational quote"""
-        self.selected_quote = quote
-        text_field.text = quote
-        self.quote_menu.dismiss()
-
     def add_task(self):
-        """Add task with all scheduling information"""
-        # Validation
+        """Add new task"""
         if not self.title_field.text.strip():
-            from kivymd.toast import toast
             toast("⚠️ Task title is required!")
             return
 
         if not self.start_time_field.text:
-            from kivymd.toast import toast
             toast("⚠️ Start time is required!")
             return
 
@@ -611,25 +690,11 @@ class EnhancedTaskScreen(MDScreen):
             if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
                 raise ValueError
         except:
-            from kivymd.toast import toast
-            toast("⚠️ Invalid start time format! Use HH:MM")
+            toast("⚠️ Invalid time format! Use HH:MM")
             return
 
-        # Get custom end date
-        custom_end_date = None
-        if self.duration_type == 'custom' and self.custom_date_field.text:
-            custom_end_date = self.custom_date_field.text
-
-        # Get reminder interval
-        try:
-            reminder_interval = int(self.reminder_interval_field.text)
-        except:
-            reminder_interval = 30
-
         # Add to database
-        from kivymd.app import MDApp
         app = MDApp.get_running_app()
-
         try:
             app.db_manager.add_task(
                 title=self.title_field.text,
@@ -638,72 +703,34 @@ class EnhancedTaskScreen(MDScreen):
                 priority='medium',
                 start_time=self.start_time_field.text,
                 end_time=self.end_time_field.text if self.end_time_field.text else None,
-                duration_type=self.duration_type,
-                custom_end_date=custom_end_date,
+                duration_type='today',
                 motivational_quote=self.quote_field.text,
-                reminder_enabled=self.reminder_checkbox.active,
-                reminder_interval=reminder_interval
+                reminder_enabled=True,
+                reminder_interval=30
             )
 
             self.dialog.dismiss()
             self.load_tasks()
-
-            from kivymd.toast import toast
             toast("✓ Task added successfully!")
 
         except Exception as e:
             print(f"❌ Error adding task: {e}")
-            import traceback
-            traceback.print_exc()
-            from kivymd.toast import toast
             toast(f"⚠️ Error: {str(e)}")
 
-    def complete_task(self, task_id):
-        """Mark task as completed"""
-        try:
-            from kivymd.app import MDApp
-            app = MDApp.get_running_app()
-            app.db_manager.update_task_status(task_id, 'completed')
-            self.load_tasks()
+    def load_tasks(self):
+        """Load and display tasks"""
+        self.apply_filters()
 
-            from kivymd.toast import toast
-            toast("✓ Task completed! Great job! 🎉")
-        except Exception as e:
-            print(f"❌ Error completing task: {e}")
+    def rebuild_ui(self):
+        """Rebuild UI for theme changes"""
+        self.clear_widgets()
+        self.build_ui()
+        self.load_tasks()
 
-    def confirm_delete(self, task_id):
-        """Confirm before deleting"""
-        self.dialog = MDDialog(
-            title="Delete Task?",
-            text="This action cannot be undone.",
-            buttons=[
-                MDFlatButton(
-                    text="CANCEL",
-                    on_release=lambda x: self.dialog.dismiss()
-                ),
-                MDRaisedButton(
-                    text="DELETE",
-                    md_bg_color=(0.9, 0.2, 0.2, 1),
-                    on_release=lambda x: self.delete_task(task_id)
-                )
-            ]
-        )
-        self.dialog.open()
-
-    def delete_task(self, task_id):
-        """Delete a task"""
-        try:
-            from kivymd.app import MDApp
-            app = MDApp.get_running_app()
-            app.db_manager.delete_task(task_id)
-            self.dialog.dismiss()
-            self.load_tasks()
-
-            from kivymd.toast import toast
-            toast("✓ Task deleted")
-        except Exception as e:
-            print(f"❌ Error deleting task: {e}")
+    def on_enter(self):
+        """Called when entering screen"""
+        self.load_tasks()
 
     def go_back(self):
-        """Navigate back to home"""
+        """Navigate back"""
         self.manager.current = 'home'
