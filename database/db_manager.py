@@ -1,521 +1,321 @@
-"""
-Enhanced Database Manager with Advanced Task Scheduling
-Supports start/end times, reminders, motivational quotes, and live progress
-"""
-
 import sqlite3
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
+from utils.constants import DB_NAME, DEFAULT_LIST_NAME
+from database.models import Task, TaskList
 
 
 class DatabaseManager:
     def __init__(self):
-        self.db_path = 'data/momentumtrack.db'
-        os.makedirs('data', exist_ok=True)
+        self.db_name = DB_NAME
+        self.init_database()
 
     def get_connection(self):
         """Get database connection"""
-        return sqlite3.connect(self.db_path)
+        return sqlite3.connect(self.db_name)
 
-    def initialize_database(self):
-        """Create tables with enhanced schema"""
+    def init_database(self):
+        """Initialize database tables"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Enhanced Tasks table with scheduling
+        # Create task_lists table with position
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS task_lists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                position INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Create tasks table with enhanced fields
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                list_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
-                description TEXT,
-                category TEXT DEFAULT 'work',
-                priority TEXT DEFAULT 'medium',
-                status TEXT DEFAULT 'pending',
-                
-                -- Scheduling fields
-                start_time TEXT NOT NULL,
-                end_time TEXT,
-                duration_type TEXT DEFAULT 'today',
-                custom_end_date TEXT,
-                
-                -- Motivation & Reminders
-                motivational_quote TEXT,
-                reminder_enabled INTEGER DEFAULT 1,
-                reminder_interval INTEGER DEFAULT 30,
-                
-                -- Timestamps
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                completed_at TEXT,
-                
-                -- Progress tracking
-                last_viewed_at TEXT,
-                time_spent_minutes INTEGER DEFAULT 0
-            )
-        ''')
-
-        # Task reminders history
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS task_reminders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id INTEGER,
-                reminder_time TEXT,
-                sent INTEGER DEFAULT 0,
-                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-            )
-        ''')
-
-        # Task progress logs (for live tracking)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS task_progress (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id INTEGER,
-                action TEXT,
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
                 notes TEXT,
-                FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
-            )
-        ''')
-
-        # Goals table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS goals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                description TEXT,
-                target_date TEXT,
-                progress INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Time blocks table (8/8/8 tracking)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS time_blocks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL UNIQUE,
-                work_hours REAL DEFAULT 0,
-                personal_hours REAL DEFAULT 0,
-                sleep_hours REAL DEFAULT 0
-            )
-        ''')
-
-        # Daily statistics (for live progress)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS daily_stats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL UNIQUE,
-                tasks_created INTEGER DEFAULT 0,
-                tasks_completed INTEGER DEFAULT 0,
-                completion_rate REAL DEFAULT 0,
-                total_time_spent INTEGER DEFAULT 0
+                due_date DATE,
+                start_time TIME,
+                end_time TIME,
+                reminder_time TIME,
+                completed BOOLEAN DEFAULT 0,
+                parent_id INTEGER,
+                position INTEGER DEFAULT 0,
+                recurrence_type TEXT,
+                recurrence_interval INTEGER DEFAULT 1,
+                last_completed_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (list_id) REFERENCES task_lists (id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES tasks (id) ON DELETE CASCADE
             )
         ''')
 
         conn.commit()
+
+        # Create default list if none exists
+        cursor.execute('SELECT COUNT(*) FROM task_lists')
+        if cursor.fetchone()[0] == 0:
+            cursor.execute('INSERT INTO task_lists (name, position) VALUES (?, ?)', (DEFAULT_LIST_NAME, 0))
+            conn.commit()
+
         conn.close()
 
-    # ==================== ENHANCED TASK CRUD ====================
+    # ===== TASK LIST OPERATIONS =====
 
-    def add_task(self, title, description='', category='work', priority='medium',
-                 start_time=None, end_time=None, duration_type='today',
-                 custom_end_date=None, motivational_quote='',
-                 reminder_enabled=True, reminder_interval=30):
-        """
-        Add a new task with scheduling
+    def get_all_lists(self):
+        """Get all task lists ordered by position"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, position, created_at FROM task_lists ORDER BY position')
+        rows = cursor.fetchall()
+        conn.close()
 
-        Args:
-            title: Task title (required)
-            start_time: Start time in format "HH:MM" (required)
-            end_time: End time in format "HH:MM" (optional)
-            duration_type: 'today', 'week', 'month', 'year', 'custom'
-            custom_end_date: If duration_type='custom', date in "YYYY-MM-DD"
-            motivational_quote: Inspirational quote for the task
-            reminder_enabled: Enable reminders
-            reminder_interval: Minutes between reminders (default 30)
-        """
+        return [TaskList(id=row[0], name=row[1], position=row[2], created_at=row[3]) for row in rows]
+
+    def get_list_by_id(self, list_id):
+        """Get a specific task list"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, position, created_at FROM task_lists WHERE id = ?', (list_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return TaskList(id=row[0], name=row[1], position=row[2], created_at=row[3])
+        return None
+
+    def create_list(self, name):
+        """Create a new task list"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Validate start_time is provided
-        if not start_time:
-            raise ValueError("Start time is required!")
+        # Get max position
+        cursor.execute('SELECT MAX(position) FROM task_lists')
+        max_pos = cursor.fetchone()[0] or 0
 
-        try:
-            cursor.execute('''
-                INSERT INTO tasks (
-                    title, description, category, priority,
-                    start_time, end_time, duration_type, custom_end_date,
-                    motivational_quote, reminder_enabled, reminder_interval
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (title, description, category, priority,
-                  start_time, end_time, duration_type, custom_end_date,
-                  motivational_quote, 1 if reminder_enabled else 0, reminder_interval))
+        cursor.execute('INSERT INTO task_lists (name, position) VALUES (?, ?)', (name, max_pos + 1))
+        list_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return list_id
+
+    def update_list(self, list_id, name):
+        """Update task list name"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('UPDATE task_lists SET name = ? WHERE id = ?', (name, list_id))
+        conn.commit()
+        conn.close()
+
+    def delete_list(self, list_id):
+        """Delete a task list and all its tasks"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM task_lists WHERE id = ?', (list_id,))
+        conn.commit()
+        conn.close()
+
+    def reorder_lists(self, list_ids):
+        """Reorder lists"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        for position, list_id in enumerate(list_ids):
+            cursor.execute('UPDATE task_lists SET position = ? WHERE id = ?', (position, list_id))
+
+        conn.commit()
+        conn.close()
+
+    # ===== TASK OPERATIONS =====
+
+    def get_tasks_by_list(self, list_id, show_completed=True):
+        """Get all tasks for a specific list"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        query = '''
+            SELECT id, list_id, title, notes, due_date, start_time, end_time, 
+                   reminder_time, completed, parent_id, position, recurrence_type,
+                   recurrence_interval, last_completed_date, created_at
+            FROM tasks
+            WHERE list_id = ? AND parent_id IS NULL
+        '''
+
+        if not show_completed:
+            query += ' AND completed = 0'
+
+        query += ' ORDER BY completed ASC, position ASC, created_at DESC'
+
+        cursor.execute(query, (list_id,))
+        rows = cursor.fetchall()
+
+        tasks = []
+        for row in rows:
+            task = Task(
+                id=row[0], list_id=row[1], title=row[2], notes=row[3],
+                due_date=row[4], start_time=row[5], end_time=row[6],
+                reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
+                position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
+                last_completed_date=row[13], created_at=row[14]
+            )
+
+            # Only show if it should appear today
+            if task.should_show_today():
+                task.subtasks = self.get_subtasks(task.id)
+                tasks.append(task)
+
+        conn.close()
+        return tasks
+
+    def get_subtasks(self, parent_id):
+        """Get all subtasks for a parent task"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, list_id, title, notes, due_date, start_time, end_time,
+                   reminder_time, completed, parent_id, position, recurrence_type,
+                   recurrence_interval, last_completed_date, created_at
+            FROM tasks
+            WHERE parent_id = ?
+            ORDER BY position ASC, created_at DESC
+        ''', (parent_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [Task(
+            id=row[0], list_id=row[1], title=row[2], notes=row[3],
+            due_date=row[4], start_time=row[5], end_time=row[6],
+            reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
+            position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
+            last_completed_date=row[13], created_at=row[14]
+        ) for row in rows]
+
+    def get_task_by_id(self, task_id):
+        """Get a specific task"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, list_id, title, notes, due_date, start_time, end_time,
+                   reminder_time, completed, parent_id, position, recurrence_type,
+                   recurrence_interval, last_completed_date, created_at
+            FROM tasks WHERE id = ?
+        ''', (task_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            task = Task(
+                id=row[0], list_id=row[1], title=row[2], notes=row[3],
+                due_date=row[4], start_time=row[5], end_time=row[6],
+                reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
+                position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
+                last_completed_date=row[13], created_at=row[14]
+            )
+            task.subtasks = self.get_subtasks(task.id)
+            return task
+        return None
+
+    def create_task(self, list_id, title, notes="", due_date=None, start_time=None,
+                    end_time=None, reminder_time=None, parent_id=None,
+                    recurrence_type=None, recurrence_interval=1):
+        """Create a new task"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # Get next position
+        if parent_id:
+            cursor.execute('SELECT MAX(position) FROM tasks WHERE parent_id = ?', (parent_id,))
+        else:
+            cursor.execute('SELECT MAX(position) FROM tasks WHERE list_id = ? AND parent_id IS NULL', (list_id,))
+
+        max_position = cursor.fetchone()[0]
+        position = (max_position or 0) + 1
+
+        cursor.execute('''
+            INSERT INTO tasks (list_id, title, notes, due_date, start_time, end_time,
+                             reminder_time, parent_id, position, recurrence_type, recurrence_interval)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (list_id, title, notes, due_date, start_time, end_time,
+              reminder_time, parent_id, position, recurrence_type, recurrence_interval))
+
+        task_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return task_id
+
+    def update_task(self, task_id, **kwargs):
+        """Update task details"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        updates = []
+        values = []
+
+        allowed_fields = ['title', 'notes', 'due_date', 'start_time', 'end_time',
+                          'reminder_time', 'completed', 'recurrence_type',
+                          'recurrence_interval', 'last_completed_date']
+
+        for field in allowed_fields:
+            if field in kwargs:
+                updates.append(f'{field} = ?')
+                values.append(kwargs[field])
+
+        if updates:
+            values.append(task_id)
+            query = f'UPDATE tasks SET {", ".join(updates)} WHERE id = ?'
+            cursor.execute(query, values)
+            conn.commit()
+
+        conn.close()
+
+    def toggle_task_completed(self, task_id):
+        """Toggle task completion status"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT completed, recurrence_type FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+
+        if row:
+            current = row[0]
+            recurrence_type = row[1]
+            new_status = 0 if current else 1
+
+            # If completing a recurring task, update last_completed_date
+            if new_status == 1 and recurrence_type:
+                today = datetime.now().date().isoformat()
+                cursor.execute('UPDATE tasks SET completed = ?, last_completed_date = ? WHERE id = ?',
+                               (new_status, today, task_id))
+            else:
+                cursor.execute('UPDATE tasks SET completed = ? WHERE id = ?', (new_status, task_id))
 
             conn.commit()
-            task_id = cursor.lastrowid
-
-            # Create reminders if enabled
-            if reminder_enabled and end_time:
-                self._create_reminders(task_id, start_time, end_time, reminder_interval)
-
-            # Log task creation
-            self._log_task_progress(task_id, 'created', 'Task created')
-
-            # Update daily stats
-            self._update_daily_stats('created')
-
-            return task_id
-
-        finally:
             conn.close()
+            return bool(new_status)
 
-    def _create_reminders(self, task_id, start_time, end_time, interval_minutes):
-        """Create reminder entries between start and end time"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            # Parse times
-            start_hour, start_min = map(int, start_time.split(':'))
-            end_hour, end_min = map(int, end_time.split(':'))
-
-            start_datetime = datetime.now().replace(hour=start_hour, minute=start_min, second=0)
-            end_datetime = datetime.now().replace(hour=end_hour, minute=end_min, second=0)
-
-            # If end time is before start time, it's next day
-            if end_datetime <= start_datetime:
-                end_datetime += timedelta(days=1)
-
-            # Create reminders at intervals
-            current_time = start_datetime
-            while current_time < end_datetime:
-                cursor.execute('''
-                    INSERT INTO task_reminders (task_id, reminder_time)
-                    VALUES (?, ?)
-                ''', (task_id, current_time.strftime('%Y-%m-%d %H:%M:%S')))
-                current_time += timedelta(minutes=interval_minutes)
-
-            conn.commit()
-        finally:
-            conn.close()
-
-    def get_all_tasks(self, status=None, duration_filter=None):
-        """
-        Get tasks with optional filters
-
-        Args:
-            status: 'pending', 'completed', 'all', or None
-            duration_filter: 'today', 'week', 'month', 'year', or None
-        """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        query = 'SELECT * FROM tasks WHERE 1=1'
-        params = []
-
-        if status and status != 'all':
-            query += ' AND status = ?'
-            params.append(status)
-
-        # Filter by duration if specified
-        if duration_filter:
-            today = datetime.now().date()
-
-            if duration_filter == 'today':
-                query += ' AND DATE(created_at) = ?'
-                params.append(today.isoformat())
-            elif duration_filter == 'week':
-                week_start = today - timedelta(days=today.weekday())
-                query += ' AND DATE(created_at) >= ?'
-                params.append(week_start.isoformat())
-            elif duration_filter == 'month':
-                month_start = today.replace(day=1)
-                query += ' AND DATE(created_at) >= ?'
-                params.append(month_start.isoformat())
-            elif duration_filter == 'year':
-                year_start = today.replace(month=1, day=1)
-                query += ' AND DATE(created_at) >= ?'
-                params.append(year_start.isoformat())
-
-        query += ' ORDER BY start_time ASC, created_at DESC'
-
-        cursor.execute(query, params)
-        tasks = cursor.fetchall()
         conn.close()
-        return tasks
-
-    def get_tasks_by_duration_type(self, duration_type):
-        """Get tasks filtered by their duration_type field"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT * FROM tasks 
-            WHERE duration_type = ? 
-            ORDER BY start_time ASC
-        ''', (duration_type,))
-        tasks = cursor.fetchall()
-        conn.close()
-        return tasks
-
-    def get_active_tasks_for_time(self, current_time=None):
-        """Get tasks that should be active at the given time"""
-        if not current_time:
-            current_time = datetime.now().time()
-
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT * FROM tasks 
-            WHERE status = 'pending'
-            AND time(start_time) <= time(?)
-            AND (end_time IS NULL OR time(end_time) >= time(?))
-            ORDER BY start_time ASC
-        ''', (current_time.strftime('%H:%M'), current_time.strftime('%H:%M')))
-        tasks = cursor.fetchall()
-        conn.close()
-        return tasks
-
-    def update_task_status(self, task_id, status):
-        """Update task status and track progress"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        completed_at = datetime.now().isoformat() if status == 'completed' else None
-
-        cursor.execute('''
-            UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?
-        ''', (status, completed_at, task_id))
-
-        conn.commit()
-        conn.close()
-
-        # Log progress
-        self._log_task_progress(task_id, 'status_changed', f'Status changed to {status}')
-
-        # Update daily stats
-        if status == 'completed':
-            self._update_daily_stats('completed')
-
-    def update_task_time_spent(self, task_id, minutes):
-        """Update time spent on a task"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE tasks 
-            SET time_spent_minutes = time_spent_minutes + ?,
-                last_viewed_at = ?
-            WHERE id = ?
-        ''', (minutes, datetime.now().isoformat(), task_id))
-        conn.commit()
-        conn.close()
+        return False
 
     def delete_task(self, task_id):
-        """Delete a task and its related data"""
+        """Delete a task and all its subtasks"""
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
-        cursor.execute('DELETE FROM task_reminders WHERE task_id = ?', (task_id,))
-        cursor.execute('DELETE FROM task_progress WHERE task_id = ?', (task_id,))
         conn.commit()
         conn.close()
 
-    # ==================== PROGRESS TRACKING ====================
-
-    def _log_task_progress(self, task_id, action, notes=''):
-        """Log task progress for analytics"""
+    def get_tasks_with_reminders_today(self):
+        """Get all tasks that have reminders for today"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO task_progress (task_id, action, notes)
-            VALUES (?, ?, ?)
-        ''', (task_id, action, notes))
-        conn.commit()
-        conn.close()
-
-    def _update_daily_stats(self, action):
-        """Update daily statistics (LIVE data, no dummy)"""
         today = datetime.now().date().isoformat()
-        conn = self.get_connection()
-        cursor = conn.cursor()
 
-        # Get or create today's stats
-        cursor.execute('SELECT * FROM daily_stats WHERE date = ?', (today,))
-        stats = cursor.fetchone()
-
-        if not stats:
-            cursor.execute('''
-                INSERT INTO daily_stats (date, tasks_created, tasks_completed)
-                VALUES (?, 0, 0)
-            ''', (today,))
-            conn.commit()
-
-        # Update based on action
-        if action == 'created':
-            cursor.execute('''
-                UPDATE daily_stats 
-                SET tasks_created = tasks_created + 1
-                WHERE date = ?
-            ''', (today,))
-        elif action == 'completed':
-            cursor.execute('''
-                UPDATE daily_stats 
-                SET tasks_completed = tasks_completed + 1
-                WHERE date = ?
-            ''', (today,))
-
-        # Calculate completion rate
         cursor.execute('''
-            UPDATE daily_stats
-            SET completion_rate = CAST(tasks_completed AS REAL) / NULLIF(tasks_created, 0) * 100
-            WHERE date = ?
+            SELECT id, list_id, title, start_time, end_time, reminder_time
+            FROM tasks
+            WHERE due_date = ? AND reminder_time IS NOT NULL AND completed = 0
         ''', (today,))
 
-        conn.commit()
+        rows = cursor.fetchall()
         conn.close()
-
-    def get_daily_stats(self, date=None):
-        """Get statistics for a specific date (LIVE data)"""
-        if not date:
-            date = datetime.now().date().isoformat()
-
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM daily_stats WHERE date = ?', (date,))
-        stats = cursor.fetchone()
-        conn.close()
-        return stats
-
-    def get_weekly_stats(self):
-        """Get statistics for the past 7 days (LIVE data)"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        # Get last 7 days
-        today = datetime.now().date()
-        dates = [(today - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
-
-        stats = []
-        for date in dates:
-            cursor.execute('SELECT * FROM daily_stats WHERE date = ?', (date,))
-            day_stats = cursor.fetchone()
-            if day_stats:
-                stats.append(day_stats)
-            else:
-                # Return zeros for days with no data
-                stats.append((None, date, 0, 0, 0, 0))
-
-        conn.close()
-        return stats
-
-    def get_completion_rate(self):
-        """Calculate LIVE completion rate from actual data"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        # Get all-time stats
-        cursor.execute('SELECT COUNT(*) FROM tasks WHERE status = "completed"')
-        completed = cursor.fetchone()[0]
-
-        cursor.execute('SELECT COUNT(*) FROM tasks')
-        total = cursor.fetchone()[0]
-
-        conn.close()
-
-        if total == 0:
-            return 0
-        return (completed / total * 100)
-
-    def get_today_completion_rate(self):
-        """Get today's completion rate (LIVE)"""
-        today = datetime.now().date().isoformat()
-        stats = self.get_daily_stats(today)
-
-        if stats and stats[2] > 0:  # tasks_created > 0
-            return stats[4]  # completion_rate
-        return 0
-
-    # ==================== REMINDERS ====================
-
-    def get_pending_reminders(self):
-        """Get reminders that need to be sent"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        cursor.execute('''
-            SELECT r.*, t.title, t.motivational_quote
-            FROM task_reminders r
-            JOIN tasks t ON r.task_id = t.id
-            WHERE r.sent = 0 
-            AND r.reminder_time <= ?
-            AND t.status = 'pending'
-            ORDER BY r.reminder_time ASC
-        ''', (now,))
-
-        reminders = cursor.fetchall()
-        conn.close()
-        return reminders
-
-    def mark_reminder_sent(self, reminder_id):
-        """Mark a reminder as sent"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE task_reminders SET sent = 1 WHERE id = ?
-        ''', (reminder_id,))
-        conn.commit()
-        conn.close()
-
-    # ==================== GOALS (existing) ====================
-
-    def add_goal(self, title, description='', target_date=None):
-        """Add a new goal"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO goals (title, description, target_date)
-            VALUES (?, ?, ?)
-        ''', (title, description, target_date))
-        conn.commit()
-        goal_id = cursor.lastrowid
-        conn.close()
-        return goal_id
-
-    def get_all_goals(self):
-        """Get all goals"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM goals ORDER BY created_at DESC')
-        goals = cursor.fetchall()
-        conn.close()
-        return goals
-
-    def update_goal_progress(self, goal_id, progress):
-        """Update goal progress"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('UPDATE goals SET progress = ? WHERE id = ?', (progress, goal_id))
-        conn.commit()
-        conn.close()
-
-    # ==================== TIME TRACKING ====================
-
-    def update_time_block(self, date, work=0, personal=0, sleep=0):
-        """Update time block for a specific date"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO time_blocks (date, work_hours, personal_hours, sleep_hours)
-            VALUES (?, ?, ?, ?)
-        ''', (date, work, personal, sleep))
-        conn.commit()
-        conn.close()
-
-    def get_time_block(self, date):
-        """Get time block for a specific date"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM time_blocks WHERE date = ?', (date,))
-        result = cursor.fetchone()
-        conn.close()
-        return result
+        return rows
