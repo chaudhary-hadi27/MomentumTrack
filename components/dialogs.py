@@ -3,8 +3,6 @@ from kivymd.uix.button import MDFlatButton, MDRaisedButton
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.pickers import MDTimePicker
-from kivymd.uix.menu import MDDropdownMenu
-from kivymd.uix.list import OneLineListItem
 from kivy.metrics import dp
 from datetime import datetime
 from utils.constants import *
@@ -224,65 +222,4 @@ class RecurrenceDialog:
                 interval = 1
 
         self.callback(self.selected_type, interval)
-        self.dialog.dismiss()
-
-
-class ThemeDialog:
-    def __init__(self, callback, current_theme="Light"):
-        self.callback = callback
-        self.current_theme = current_theme
-        self.dialog = None
-
-    def show(self):
-        content = MDBoxLayout(
-            orientation='vertical',
-            spacing=dp(16),
-            size_hint_y=None,
-            height=dp(150),
-            padding=dp(16)
-        )
-
-        from kivymd.uix.label import MDLabel
-        content.add_widget(MDLabel(
-            text="Choose Theme:",
-            font_style="Subtitle1",
-            size_hint_y=None,
-            height=dp(30)
-        ))
-
-        # Light theme button
-        light_btn = MDRaisedButton(
-            text="☀️ Light Theme",
-            md_bg_color=BUTTON_COLOR if self.current_theme == "Light" else (0.8, 0.8, 0.8, 1),
-            size_hint_y=None,
-            height=dp(48),
-            on_release=lambda x: self.select_theme("Light")
-        )
-        content.add_widget(light_btn)
-
-        # Dark theme button
-        dark_btn = MDRaisedButton(
-            text="🌙 Dark Theme",
-            md_bg_color=BUTTON_COLOR if self.current_theme == "Dark" else (0.8, 0.8, 0.8, 1),
-            size_hint_y=None,
-            height=dp(48),
-            on_release=lambda x: self.select_theme("Dark")
-        )
-        content.add_widget(dark_btn)
-
-        self.dialog = MDDialog(
-            title="App Theme",
-            type="custom",
-            content_cls=content,
-            buttons=[
-                MDFlatButton(
-                    text="CLOSE",
-                    on_release=lambda x: self.dialog.dismiss()
-                ),
-            ],
-        )
-        self.dialog.open()
-
-    def select_theme(self, theme):
-        self.callback(theme)
         self.dialog.dismiss()

@@ -1,18 +1,41 @@
 from kivymd.app import MDApp
 from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.core.window import Window
 from screens.main_screen import MainScreen
 from screens.task_detail_screen import TaskDetailScreen
-from screens.settings_screen import SettingsScreen
-from utils.constants import PRIMARY_COLOR
+from utils.constants import APP_NAME
+from utils.notification_manager import NotificationManager
+from database.db_manager import DatabaseManager
+import platform
 
 
-class TasksApp(MDApp):
+class MomentumTrackApp(MDApp):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.title = "Tasks"
+        self.title = APP_NAME
         self.theme_cls.primary_palette = "Blue"
         self.theme_cls.primary_hue = "600"
-        self.theme_cls.theme_style = "Light"
+
+        # Auto detect system theme
+        self.set_theme_from_system()
+
+        # Initialize notification manager
+        self.db = DatabaseManager()
+        self.notification_manager = NotificationManager(self.db)
+
+    def set_theme_from_system(self):
+        """Auto detect and set theme based on system"""
+        try:
+            # Try to detect system theme (works on some platforms)
+            import darkdetect
+            if darkdetect.isDark():
+                self.theme_cls.theme_style = "Dark"
+            else:
+                self.theme_cls.theme_style = "Light"
+        except:
+            # Default to Light if can't detect
+            # You can change this default to "Dark" if you prefer
+            self.theme_cls.theme_style = "Light"
 
     def build(self):
         self.screen_manager = ScreenManager()
@@ -23,6 +46,9 @@ class TasksApp(MDApp):
         self.main_screen_widget.open_task_details = self.open_task_details
         main_screen.add_widget(self.main_screen_widget)
         self.screen_manager.add_widget(main_screen)
+
+        # Start notification manager
+        self.notification_manager.start()
 
         return self.screen_manager
 
@@ -54,20 +80,10 @@ class TasksApp(MDApp):
         if self.screen_manager.has_screen('task_detail'):
             self.screen_manager.remove_widget(self.screen_manager.get_screen('task_detail'))
 
-    def open_settings(self):
-        if not self.screen_manager.has_screen('settings'):
-            settings_screen = Screen(name='settings')
-            settings_widget = SettingsScreen(
-                on_back_callback=self.close_settings
-            )
-            settings_screen.add_widget(settings_widget)
-            self.screen_manager.add_widget(settings_screen)
-
-        self.screen_manager.current = 'settings'
-
-    def close_settings(self):
-        self.screen_manager.current = 'main'
+    def on_stop(self):
+        # Stop notification manager when app closes
+        self.notification_manager.stop()
 
 
 if __name__ == '__main__':
-    TasksApp().run()
+    MomentumTrackApp().run()

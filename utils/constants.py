@@ -1,7 +1,6 @@
 # App constants
 APP_NAME = "Momentum Track"
-PRIMARY_COLOR = "#1a73e8"
-BUTTON_COLOR = "#1a73e8"
+BUTTON_COLOR = "#1a73e8"  # Only for action buttons, not toolbar
 
 # Recurrence types
 RECURRENCE_TODAY = "today"

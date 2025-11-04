@@ -1,6 +1,7 @@
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
 from kivymd.uix.selectioncontrol import MDCheckbox
+from kivymd.uix.button import MDIconButton
 from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty
 from kivy.metrics import dp
 
@@ -16,13 +17,14 @@ class TaskItem(MDBoxLayout):
     is_subtask = BooleanProperty(False)
     on_task_click = ObjectProperty(None)
     on_toggle_complete = ObjectProperty(None)
+    on_delete = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
         self.height = dp(80 if self.task_start_time or self.task_recurrence else 60)
-        self.padding = [dp(16) if not self.is_subtask else dp(48), dp(8), dp(16), dp(8)]
+        self.padding = [dp(16) if not self.is_subtask else dp(48), dp(8), dp(8), dp(8)]
         self.spacing = dp(12)
 
         self.build_ui()
@@ -94,6 +96,16 @@ class TaskItem(MDBoxLayout):
 
         self.add_widget(content_layout)
 
+        # Delete button
+        delete_btn = MDIconButton(
+            icon="delete",
+            theme_text_color="Hint",
+            size_hint=(None, None),
+            size=(dp(40), dp(40)),
+            on_release=self.on_delete_click
+        )
+        self.add_widget(delete_btn)
+
     def on_checkbox_active(self, checkbox, value):
         if self.on_toggle_complete:
             self.on_toggle_complete(self.task_id, value)
@@ -104,8 +116,19 @@ class TaskItem(MDBoxLayout):
         self.title_label.theme_text_color = "Hint" if completed else "Primary"
         self.title_label.strikethrough = completed
 
+    def on_delete_click(self, *args):
+        if self.on_delete:
+            self.on_delete(self.task_id)
+
     def on_touch_down(self, touch):
-        if self.collide_point(*touch.pos) and not self.checkbox.collide_point(*touch.pos):
+        # Check if touch is not on checkbox or delete button
+        if self.collide_point(*touch.pos):
+            for child in self.children:
+                if child.collide_point(*touch.pos):
+                    if isinstance(child, (MDCheckbox, MDIconButton)):
+                        return super().on_touch_down(touch)
+
+            # Touch is on task content area
             if self.on_task_click:
                 self.on_task_click(self.task_id)
             return True

@@ -1,5 +1,4 @@
 from kivy.uix.carousel import Carousel
-from kivy.uix.label import Label
 from kivy.metrics import dp
 
 
@@ -7,8 +6,10 @@ class ListSwiper(Carousel):
     def __init__(self, on_list_change=None, **kwargs):
         super().__init__(**kwargs)
         self.direction = 'right'
-        self.loop = True
+        self.loop = False  # Changed to False for better UX
         self.on_list_change = on_list_change
+        self.anim_type = 'out_cubic'  # Smooth animation
+        self.anim_move_duration = 0.3  # Faster swipe
         self.bind(index=self._on_index_change)
 
     def _on_index_change(self, instance, value):
