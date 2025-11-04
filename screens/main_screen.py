@@ -25,19 +25,59 @@ class MainScreen(MDScreen):
         self.current_list_name = ""
         self.all_lists = []
         self.current_list_index = 0
-        self.list_widgets = {}  # Store task list widgets for each list
-        self.open_settings = None  # Will be set by main app
+        self.list_widgets = {}
+        self.open_settings = None
+
+        # Store toolbar reference for theme updates
+        self.toolbar = None
 
         self.build_ui()
         self.load_initial_data()
+
+        # Listen for theme changes
+        app = MDApp.get_running_app()
+        if app:
+            app.theme_cls.bind(theme_style=self.on_theme_change)
+
+    def update_toolbar_colors(self):
+        """Update toolbar icon colors based on theme"""
+        if not self.toolbar:
+            return
+
+        app = MDApp.get_running_app()
+        if app.theme_cls.theme_style == "Light":
+            self.toolbar.specific_text_color = [0, 0, 0, 0.87]  # Black
+        else:
+            self.toolbar.specific_text_color = [1, 1, 1, 1]  # White
+
+    def on_theme_change(self, instance, value):
+        """Called when theme changes"""
+        # Update toolbar color and icons
+        if self.toolbar:
+            self.toolbar.md_bg_color = self.get_toolbar_color()
+            self.update_toolbar_colors()
+
+            # Rebuild toolbar items to apply new colors
+            self.toolbar.left_action_items = [["menu", lambda x: self.toggle_nav_drawer()]]
+            self.toolbar.right_action_items = [
+                ["magnify", lambda x: self.toggle_search()],
+                ["cog", lambda x: self.show_settings()],
+                ["dots-vertical", lambda x: self.show_list_options()]
+            ]
+
+        # Update all task items in all lists
+        for list_id, task_list_widget in self.list_widgets.items():
+            for child in task_list_widget.children:
+                if isinstance(child, TaskItem):
+                    child.update_theme_colors()
 
     def get_toolbar_color(self):
         """Get toolbar color based on current theme"""
         app = MDApp.get_running_app()
         if app and app.theme_cls.theme_style == "Dark":
-            return (0.12, 0.12, 0.12, 1)  # Dull dark
+            return (0.12, 0.12, 0.12, 1)  # Dark gray
         else:
-            return (0.96, 0.96, 0.96, 1)  # Dull white/light
+            return (0.96, 0.96, 0.96, 1)  # Light gray for better contrast
 
     def build_ui(self):
         # Navigation layout
@@ -52,7 +92,7 @@ class MainScreen(MDScreen):
         # Content layout
         content_box = MDBoxLayout(orientation='vertical')
 
-        # Toolbar with dull color (changes with theme)
+        # Toolbar with theme-aware color
         self.toolbar = MDTopAppBar(
             title="My Tasks",
             left_action_items=[["menu", lambda x: self.toggle_nav_drawer()]],
@@ -64,6 +104,9 @@ class MainScreen(MDScreen):
             elevation=2,
             md_bg_color=self.get_toolbar_color()
         )
+
+        # Set icon color after toolbar creation
+        self.update_toolbar_colors()
 
         content_box.add_widget(self.toolbar)
 
@@ -326,9 +369,9 @@ class MainScreen(MDScreen):
 
     def confirm_delete_task(self, task_id, dialog):
         """Confirm and delete the task"""
+        dialog.dismiss()
         self.db.delete_task(task_id)
         self.load_tasks()
-        dialog.dismiss()
 
     def open_task_details(self, task_id):
         # Implemented in main.py

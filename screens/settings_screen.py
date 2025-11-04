@@ -12,27 +12,57 @@ class SettingsScreen(MDScreen):
     def __init__(self, on_back_callback, **kwargs):
         super().__init__(**kwargs)
         self.on_back_callback = on_back_callback
+        self.toolbar = None
         self.build_ui()
+
+        # Listen for theme changes
+        app = MDApp.get_running_app()
+        if app:
+            app.theme_cls.bind(theme_style=self.on_theme_change)
+
+    def update_toolbar_colors(self):
+        """Update toolbar icon colors based on theme"""
+        if not self.toolbar:
+            return
+
+        app = MDApp.get_running_app()
+        if app.theme_cls.theme_style == "Light":
+            self.toolbar.specific_text_color = [0, 0, 0, 0.87]  # Black
+        else:
+            self.toolbar.specific_text_color = [1, 1, 1, 1]  # White
+
+    def on_theme_change(self, instance, value):
+        """Called when theme changes"""
+        if self.toolbar:
+            self.toolbar.md_bg_color = self.get_toolbar_color()
+            self.update_toolbar_colors()
+
+            # Rebuild toolbar items to apply new colors
+            self.toolbar.left_action_items = [["arrow-left", lambda x: self.go_back()]]
 
     def get_toolbar_color(self):
         """Get toolbar color based on current theme"""
         app = MDApp.get_running_app()
         if app and app.theme_cls.theme_style == "Dark":
-            return (0.12, 0.12, 0.12, 1)  # Dull dark
+            return (0.12, 0.12, 0.12, 1)  # Dark gray
         else:
-            return (0.96, 0.96, 0.96, 1)  # Dull white/light
+            return (0.96, 0.96, 0.96, 1)  # Light gray for better contrast
 
     def build_ui(self):
         layout = MDBoxLayout(orientation='vertical')
 
-        # Toolbar with dull color
-        toolbar = MDTopAppBar(
+        # Toolbar with theme-aware color
+        self.toolbar = MDTopAppBar(
             title="Settings",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
             elevation=2,
             md_bg_color=self.get_toolbar_color()
         )
-        layout.add_widget(toolbar)
+
+        # Set icon color after toolbar creation
+        self.update_toolbar_colors()
+
+        layout.add_widget(self.toolbar)
 
         # Settings list
         scroll = MDScrollView()
