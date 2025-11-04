@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 from utils.constants import DB_NAME, DEFAULT_LIST_NAME
-from database.models import Task, TaskList
+from database.models import Task, TaskList, TaskCategory
 
 
 class DatabaseManager:
@@ -18,17 +18,36 @@ class DatabaseManager:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Create task_lists table with position
+        # Create task_lists table with category
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS task_lists (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
+                category TEXT DEFAULT 'daily',
                 position INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Create tasks table with enhanced fields
+        # ===== MIGRATION: Add category column if it doesn't exist =====
+        try:
+            # Check if category column exists
+            cursor.execute("PRAGMA table_info(task_lists)")
+            columns = [column[1] for column in cursor.fetchall()]
+
+            if 'category' not in columns:
+                print("🔄 Migrating database: Adding category column...")
+                cursor.execute('ALTER TABLE task_lists ADD COLUMN category TEXT DEFAULT "daily"')
+
+                # Update existing lists to be daily lists
+                cursor.execute('UPDATE task_lists SET category = "daily" WHERE category IS NULL')
+                conn.commit()
+                print("✅ Database migration complete!")
+        except Exception as e:
+            print(f"Migration error: {e}")
+        # ===== END MIGRATION =====
+
+        # Create tasks table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,48 +72,103 @@ class DatabaseManager:
 
         conn.commit()
 
-        # Create default list if none exists
+        # Create default lists if none exist
         cursor.execute('SELECT COUNT(*) FROM task_lists')
         if cursor.fetchone()[0] == 0:
-            cursor.execute('INSERT INTO task_lists (name, position) VALUES (?, ?)', (DEFAULT_LIST_NAME, 0))
+            print("📝 Creating default lists for each category...")
+            # Create one list for each category
+            for idx, cat in enumerate(TaskCategory.get_all()):
+                cursor.execute(
+                    'INSERT INTO task_lists (name, category, position) VALUES (?, ?, ?)',
+                    (f"My {cat['name']}", cat['id'], idx)
+                )
             conn.commit()
+            print("✅ Default lists created!")
 
         conn.close()
+
+    # ===== CATEGORY OPERATIONS =====
+
+    def get_lists_by_category(self, category):
+        """Get all lists for a specific category"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, name, category, position, created_at 
+            FROM task_lists 
+            WHERE category = ?
+            ORDER BY position
+        ''', (category,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [TaskList(id=row[0], name=row[1], category=row[2],
+                         position=row[3], created_at=row[4]) for row in rows]
+
+    def get_all_categories_with_lists(self):
+        """Get all categories with their lists"""
+        result = {}
+        for cat in TaskCategory.get_all():
+            result[cat['id']] = {
+                'info': cat,
+                'lists': self.get_lists_by_category(cat['id'])
+            }
+        return result
 
     # ===== TASK LIST OPERATIONS =====
 
     def get_all_lists(self):
-        """Get all task lists ordered by position"""
+        """Get all task lists ordered by category and position"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, position, created_at FROM task_lists ORDER BY position')
+        cursor.execute('''
+            SELECT id, name, category, position, created_at 
+            FROM task_lists 
+            ORDER BY 
+                CASE category
+                    WHEN 'daily' THEN 1
+                    WHEN 'weekend' THEN 2
+                    WHEN 'monthly' THEN 3
+                    WHEN 'yearly' THEN 4
+                END, position
+        ''')
         rows = cursor.fetchall()
         conn.close()
 
-        return [TaskList(id=row[0], name=row[1], position=row[2], created_at=row[3]) for row in rows]
+        return [TaskList(id=row[0], name=row[1], category=row[2],
+                         position=row[3], created_at=row[4]) for row in rows]
 
     def get_list_by_id(self, list_id):
         """Get a specific task list"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, position, created_at FROM task_lists WHERE id = ?', (list_id,))
+        cursor.execute('''
+            SELECT id, name, category, position, created_at 
+            FROM task_lists WHERE id = ?
+        ''', (list_id,))
         row = cursor.fetchone()
         conn.close()
 
         if row:
-            return TaskList(id=row[0], name=row[1], position=row[2], created_at=row[3])
+            return TaskList(id=row[0], name=row[1], category=row[2],
+                            position=row[3], created_at=row[4])
         return None
 
-    def create_list(self, name):
-        """Create a new task list"""
+    def create_list(self, name, category="daily"):
+        """Create a new task list in a category"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Get max position
-        cursor.execute('SELECT MAX(position) FROM task_lists')
+        # Get max position for this category
+        cursor.execute('''
+            SELECT MAX(position) FROM task_lists WHERE category = ?
+        ''', (category,))
         max_pos = cursor.fetchone()[0] or 0
 
-        cursor.execute('INSERT INTO task_lists (name, position) VALUES (?, ?)', (name, max_pos + 1))
+        cursor.execute('''
+            INSERT INTO task_lists (name, category, position) 
+            VALUES (?, ?, ?)
+        ''', (name, category, max_pos + 1))
         list_id = cursor.lastrowid
         conn.commit()
         conn.close()
@@ -116,15 +190,24 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
-    def reorder_lists(self, list_ids):
-        """Reorder lists"""
+    def cleanup_completed_daily_tasks(self):
+        """Delete completed tasks from daily lists"""
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        for position, list_id in enumerate(list_ids):
-            cursor.execute('UPDATE task_lists SET position = ? WHERE id = ?', (position, list_id))
+        # Get all daily list IDs
+        cursor.execute("SELECT id FROM task_lists WHERE category = 'daily'")
+        daily_list_ids = [row[0] for row in cursor.fetchall()]
 
-        conn.commit()
+        if daily_list_ids:
+            placeholders = ','.join(['?' for _ in daily_list_ids])
+            cursor.execute(f'''
+                DELETE FROM tasks 
+                WHERE list_id IN ({placeholders}) 
+                AND completed = 1
+            ''', daily_list_ids)
+            conn.commit()
+
         conn.close()
 
     # ===== TASK OPERATIONS =====
@@ -159,11 +242,8 @@ class DatabaseManager:
                 position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
                 last_completed_date=row[13], created_at=row[14]
             )
-
-            # Only show if it should appear today
-            if task.should_show_today():
-                task.subtasks = self.get_subtasks(task.id)
-                tasks.append(task)
+            task.subtasks = self.get_subtasks(task.id)
+            tasks.append(task)
 
         conn.close()
         return tasks
@@ -223,7 +303,6 @@ class DatabaseManager:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Get next position
         if parent_id:
             cursor.execute('SELECT MAX(position) FROM tasks WHERE parent_id = ?', (parent_id,))
         else:
@@ -273,22 +352,13 @@ class DatabaseManager:
         """Toggle task completion status"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT completed, recurrence_type FROM tasks WHERE id = ?', (task_id,))
+        cursor.execute('SELECT completed FROM tasks WHERE id = ?', (task_id,))
         row = cursor.fetchone()
 
         if row:
             current = row[0]
-            recurrence_type = row[1]
             new_status = 0 if current else 1
-
-            # If completing a recurring task, update last_completed_date
-            if new_status == 1 and recurrence_type:
-                today = datetime.now().date().isoformat()
-                cursor.execute('UPDATE tasks SET completed = ?, last_completed_date = ? WHERE id = ?',
-                               (new_status, today, task_id))
-            else:
-                cursor.execute('UPDATE tasks SET completed = ? WHERE id = ?', (new_status, task_id))
-
+            cursor.execute('UPDATE tasks SET completed = ? WHERE id = ?', (new_status, task_id))
             conn.commit()
             conn.close()
             return bool(new_status)

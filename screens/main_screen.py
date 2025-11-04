@@ -2,11 +2,9 @@ from kivymd.uix.screen import MDScreen
 from kivymd.uix.toolbar import MDTopAppBar
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.scrollview import MDScrollView
-from kivymd.uix.list import MDList, OneLineListItem
-from kivymd.uix.button import MDIconButton, MDFloatingActionButton, MDRaisedButton
+from kivymd.uix.list import MDList, TwoLineIconListItem, IconLeftWidget
+from kivymd.uix.button import MDIconButton, MDFloatingActionButton
 from kivymd.uix.navigationdrawer import MDNavigationDrawer, MDNavigationLayout
-from kivymd.uix.card import MDCard
-from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.metrics import dp
 from kivy.graphics import Color, RoundedRectangle
 from kivymd.app import MDApp
@@ -14,110 +12,200 @@ from components.task_item import TaskItem
 from components.list_swiper import ListSwiper
 from components.dialogs import AddTaskDialog, EditListDialog
 from database.db_manager import DatabaseManager
+from database.models import TaskCategory
 from utils.constants import BUTTON_COLOR
+
+
+class ListTabs(MDBoxLayout):
+    """Horizontal scrollable tabs for lists"""
+
+    def __init__(self, lists=None, on_list_select=None, on_add_list=None, **kwargs):
+        super().__init__(**kwargs)
+        from kivymd.uix.button import MDFlatButton, MDRaisedButton
+
+        self.orientation = 'horizontal'
+        self.size_hint_y = None
+        self.height = dp(56)
+        self.padding = [dp(8), dp(4)]
+        self.spacing = dp(8)
+
+        self.lists = lists or []
+        self.on_list_select = on_list_select
+        self.on_add_list = on_add_list
+        self.current_list_id = None
+        self.tab_buttons = {}
+
+        # Scrollable container
+        self.scroll = MDScrollView(
+            do_scroll_y=False,
+            do_scroll_x=True,
+            bar_width=0
+        )
+
+        self.tab_container = MDBoxLayout(
+            orientation='horizontal',
+            size_hint_x=None,
+            spacing=dp(8),
+            padding=[dp(4), 0]
+        )
+        self.tab_container.bind(minimum_width=self.tab_container.setter('width'))
+
+        self.scroll.add_widget(self.tab_container)
+        self.add_widget(self.scroll)
+
+        # Add button
+        self.add_btn = MDRaisedButton(
+            text="+",
+            size_hint=(None, None),
+            size=(dp(48), dp(40)),
+            md_bg_color=(0.1, 0.45, 0.91, 1),
+            on_release=lambda x: self.on_add_list() if self.on_add_list else None,
+            elevation=4
+        )
+        self.add_widget(self.add_btn)
+
+        self.update_tabs()
+
+    def update_tabs(self):
+        from kivymd.uix.button import MDFlatButton
+
+        self.tab_container.clear_widgets()
+        self.tab_buttons.clear()
+
+        for lst in self.lists:
+            btn = MDFlatButton(
+                text=lst.name,
+                size_hint=(None, None),
+                size=(dp(120), dp(40)),
+                on_release=lambda x, lid=lst.id: self._on_tab_click(lid)
+            )
+            self.tab_buttons[lst.id] = btn
+            self.tab_container.add_widget(btn)
+
+        if self.current_list_id and self.current_list_id in self.tab_buttons:
+            self.highlight_tab(self.current_list_id)
+
+    def highlight_tab(self, list_id):
+        self.current_list_id = list_id
+        app = MDApp.get_running_app()
+
+        for lid, btn in self.tab_buttons.items():
+            if lid == list_id:
+                btn.md_bg_color = (0.1, 0.45, 0.91, 1)
+                btn.text_color = (1, 1, 1, 1)
+            else:
+                if app and app.theme_cls.theme_style == "Dark":
+                    btn.md_bg_color = (0.2, 0.2, 0.2, 0.5)
+                    btn.text_color = (1, 1, 1, 0.7)
+                else:
+                    btn.md_bg_color = (0.9, 0.9, 0.9, 0.5)
+                    btn.text_color = (0, 0, 0, 0.7)
+
+    def _on_tab_click(self, list_id):
+        self.highlight_tab(list_id)
+        if self.on_list_select:
+            self.on_list_select(list_id)
+
+    def set_lists(self, lists):
+        self.lists = lists
+        self.update_tabs()
+
+    def select_list(self, list_id):
+        self.highlight_tab(list_id)
 
 
 class MainScreen(MDScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.db = DatabaseManager()
+        self.current_category = TaskCategory.DAILY
         self.current_list_id = None
         self.current_list_name = ""
-        self.all_lists = []
         self.current_list_index = 0
+        self.category_lists = {}
         self.list_widgets = {}
         self.open_settings = None
-
-        # Store toolbar reference for theme updates
         self.toolbar = None
+        self.list_tabs = None
 
         self.build_ui()
         self.load_initial_data()
 
-        # Listen for theme changes
         app = MDApp.get_running_app()
         if app:
             app.theme_cls.bind(theme_style=self.on_theme_change)
 
     def update_toolbar_colors(self):
-        """Update toolbar icon colors based on theme"""
         if not self.toolbar:
             return
-
         app = MDApp.get_running_app()
         if app.theme_cls.theme_style == "Light":
-            self.toolbar.specific_text_color = [0, 0, 0, 0.87]  # Black
+            self.toolbar.specific_text_color = [0, 0, 0, 0.87]
         else:
-            self.toolbar.specific_text_color = [1, 1, 1, 1]  # White
+            self.toolbar.specific_text_color = [1, 1, 1, 1]
 
     def on_theme_change(self, instance, value):
-        """Called when theme changes"""
-        # Update toolbar color and icons
         if self.toolbar:
             self.toolbar.md_bg_color = self.get_toolbar_color()
             self.update_toolbar_colors()
-
-            # Rebuild toolbar items to apply new colors
             self.toolbar.left_action_items = [["menu", lambda x: self.toggle_nav_drawer()]]
             self.toolbar.right_action_items = [
-                ["magnify", lambda x: self.toggle_search()],
                 ["cog", lambda x: self.show_settings()],
                 ["dots-vertical", lambda x: self.show_list_options()]
             ]
 
-        # Update all task items in all lists
+        # Update list tabs colors
+        if self.list_tabs and self.current_list_id:
+            self.list_tabs.highlight_tab(self.current_list_id)
+
         for list_id, task_list_widget in self.list_widgets.items():
             for child in task_list_widget.children:
                 if isinstance(child, TaskItem):
                     child.update_theme_colors()
 
     def get_toolbar_color(self):
-        """Get toolbar color based on current theme"""
         app = MDApp.get_running_app()
         if app and app.theme_cls.theme_style == "Dark":
-            return (0.12, 0.12, 0.12, 1)  # Dark gray
+            return (0.12, 0.12, 0.12, 1)
         else:
-            return (0.96, 0.96, 0.96, 1)  # Light gray for better contrast
+            return (0.96, 0.96, 0.96, 1)
 
     def build_ui(self):
-        # Navigation layout
         self.nav_layout = MDNavigationLayout()
-
-        # Create ScreenManager for main content
+        from kivy.uix.screenmanager import ScreenManager, Screen
         screen_manager = ScreenManager()
-
-        # Create a screen for the content
         content_screen = Screen()
-
-        # Content layout
         content_box = MDBoxLayout(orientation='vertical')
 
-        # Toolbar with theme-aware color
+        # Toolbar (NO + button here anymore)
         self.toolbar = MDTopAppBar(
-            title="My Tasks",
+            title="Daily Tasks",
             left_action_items=[["menu", lambda x: self.toggle_nav_drawer()]],
             right_action_items=[
-                ["magnify", lambda x: self.toggle_search()],
                 ["cog", lambda x: self.show_settings()],
                 ["dots-vertical", lambda x: self.show_list_options()]
             ],
             elevation=2,
             md_bg_color=self.get_toolbar_color()
         )
-
-        # Set icon color after toolbar creation
         self.update_toolbar_colors()
-
         content_box.add_widget(self.toolbar)
 
-        # List Swiper (Carousel for swiping between lists)
+        # List Tabs (Toolbar ke neeche)
+        self.list_tabs = ListTabs(
+            on_list_select=self.on_tab_list_select,
+            on_add_list=self.show_add_list_dialog
+        )
+        content_box.add_widget(self.list_tabs)
+
+        # List Swiper
         self.list_swiper = ListSwiper(on_list_change=self.on_swipe_list_change)
         content_box.add_widget(self.list_swiper)
 
-        # Blue FAB (keep original blue)
+        # FAB
         self.fab = MDFloatingActionButton(
             icon="plus",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=(0.1, 0.45, 0.91, 1),
             pos_hint={"center_x": 0.9, "center_y": 0.1},
             on_release=self.show_add_task_dialog,
             elevation=8
@@ -126,11 +214,9 @@ class MainScreen(MDScreen):
 
         content_screen.add_widget(content_box)
         screen_manager.add_widget(content_screen)
-
-        # Add ScreenManager to navigation layout
         self.nav_layout.add_widget(screen_manager)
 
-        # Modern Navigation drawer
+        # Sidebar (Only categories)
         self.nav_drawer = MDNavigationDrawer()
         nav_drawer_content = MDBoxLayout(
             orientation='vertical',
@@ -138,22 +224,20 @@ class MainScreen(MDScreen):
             spacing=dp(10)
         )
 
-        # Blue drawer header (keep original blue)
+        # Header
         drawer_header = MDBoxLayout(
             orientation='vertical',
             size_hint_y=None,
             height=dp(120),
             padding=[dp(20), dp(24), dp(20), dp(16)]
         )
-
         with drawer_header.canvas.before:
-            Color(0.1, 0.45, 0.91, 1)  # Blue
+            Color(0.1, 0.45, 0.91, 1)
             self.header_rect = RoundedRectangle(
                 pos=drawer_header.pos,
                 size=drawer_header.size,
                 radius=[0, 0, dp(20), dp(20)]
             )
-
         drawer_header.bind(pos=self._update_header_rect, size=self._update_header_rect)
 
         from kivymd.uix.label import MDLabel
@@ -165,7 +249,7 @@ class MainScreen(MDScreen):
             bold=True
         ))
         drawer_header.add_widget(MDLabel(
-            text="Stay Focused. Get Things Done.",
+            text="Time-Based Organization",
             font_style="Caption",
             theme_text_color="Custom",
             text_color=(1, 1, 1, 0.8),
@@ -174,133 +258,128 @@ class MainScreen(MDScreen):
         ))
         nav_drawer_content.add_widget(drawer_header)
 
-        # Lists scroll view
-        lists_scroll = MDScrollView()
+        # Categories scroll
+        categories_scroll = MDScrollView()
         self.drawer_list = MDList()
-        lists_scroll.add_widget(self.drawer_list)
-        nav_drawer_content.add_widget(lists_scroll)
-
-        # Blue add list button (keep original blue)
-        add_list_btn = MDRaisedButton(
-            text="+ New List",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
-            pos_hint={"center_x": 0.5},
-            size_hint_x=0.85,
-            size_hint_y=None,
-            height=dp(48),
-            elevation=4,
-            on_release=self.show_add_list_dialog
-        )
-        nav_drawer_content.add_widget(add_list_btn)
+        categories_scroll.add_widget(self.drawer_list)
+        nav_drawer_content.add_widget(categories_scroll)
 
         self.nav_drawer.add_widget(nav_drawer_content)
-
-        # Add drawer to navigation layout
         self.nav_layout.add_widget(self.nav_drawer)
-
-        # Add navigation layout to main screen
         self.add_widget(self.nav_layout)
 
     def _update_header_rect(self, instance, value):
-        """Update header background rectangle"""
         self.header_rect.pos = instance.pos
         self.header_rect.size = instance.size
 
     def show_settings(self):
-        """Open settings screen"""
         if self.open_settings:
             self.open_settings()
 
     def load_initial_data(self):
-        # Load all lists
-        self.all_lists = self.db.get_all_lists()
+        categories_data = self.db.get_all_categories_with_lists()
+        self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
 
-        if self.all_lists:
-            # Build swiper with all lists
+        if self.category_lists[TaskCategory.DAILY]:
+            self.current_category = TaskCategory.DAILY
             self.build_list_swiper()
-            self.load_drawer_lists()
+
+        self.load_drawer_categories()
 
     def build_list_swiper(self):
-        """Build the swipeable list carousel"""
-        # Temporarily unbind the index change to prevent callback during clear
+        """Build swiper for current category"""
         self.list_swiper.unbind(index=self.list_swiper._on_index_change)
-
         self.list_swiper.clear_widgets()
         self.list_widgets.clear()
 
-        for idx, task_list in enumerate(self.all_lists):
-            # Create a scroll view with task list for each list
+        lists = self.category_lists.get(self.current_category, [])
+
+        # Update tabs
+        self.list_tabs.set_lists(lists)
+
+        for idx, task_list in enumerate(lists):
             scroll = MDScrollView()
             task_list_widget = MDList(padding=[dp(8), dp(12)])
             scroll.add_widget(task_list_widget)
-
-            # Store references
             scroll.list_id = task_list.id
             scroll.list_index = idx
             self.list_widgets[task_list.id] = task_list_widget
-
             self.list_swiper.add_list_slide(scroll)
 
-        # Re-bind the index change
         self.list_swiper.bind(index=self.list_swiper._on_index_change)
 
-        # Load first list
-        if self.all_lists:
+        if lists:
             self.current_list_index = 0
-            self.current_list_id = self.all_lists[0].id
-            self.current_list_name = self.all_lists[0].name
-            self.toolbar.title = self.current_list_name
+            self.current_list_id = lists[0].id
+            self.current_list_name = lists[0].name
+            self.list_tabs.select_list(self.current_list_id)
+            self.update_toolbar_title()
             self.load_tasks_for_list(self.current_list_id)
 
+    def update_toolbar_title(self):
+        """Update toolbar with category name"""
+        cat_info = next((c for c in TaskCategory.get_all() if c['id'] == self.current_category), None)
+        if cat_info:
+            self.toolbar.title = f"{cat_info['icon']} {cat_info['name']}"
+
+    def load_drawer_categories(self):
+        """Load only categories in drawer"""
+        self.drawer_list.clear_widgets()
+
+        for cat in TaskCategory.get_all():
+            cat_id = cat['id']
+            lists = self.category_lists.get(cat_id, [])
+
+            category_item = TwoLineIconListItem(
+                text=f"{cat['icon']} {cat['name']}",
+                secondary_text=f"{len(lists)} list(s)",
+                on_release=lambda x, c=cat_id: self.switch_to_category(c)
+            )
+
+            icon = IconLeftWidget(icon="format-list-bulleted")
+            category_item.add_widget(icon)
+            self.drawer_list.add_widget(category_item)
+
+    def switch_to_category(self, category):
+        """Switch to category"""
+        self.current_category = category
+        self.build_list_swiper()
+        if self.nav_drawer.state == "open":
+            self.nav_drawer.set_state("close")
+
+    def on_tab_list_select(self, list_id):
+        """Handle tab click"""
+        lists = self.category_lists.get(self.current_category, [])
+
+        for idx, lst in enumerate(lists):
+            if lst.id == list_id:
+                self.list_swiper.index = idx
+                break
+
     def on_swipe_list_change(self, index):
-        """Called when user swipes to a different list"""
         if index is None:
             return
 
-        if 0 <= index < len(self.all_lists):
-            task_list = self.all_lists[index]
+        lists = self.category_lists.get(self.current_category, [])
+        if 0 <= index < len(lists):
+            task_list = lists[index]
             self.current_list_index = index
             self.current_list_id = task_list.id
             self.current_list_name = task_list.name
-            self.toolbar.title = task_list.name
-
-            # Load tasks for this list if not already loaded
+            self.list_tabs.select_list(task_list.id)
             self.load_tasks_for_list(task_list.id)
 
-    def load_drawer_lists(self):
-        self.drawer_list.clear_widgets()
-
-        for i, task_list in enumerate(self.all_lists):
-            item = OneLineListItem(
-                text=task_list.name,
-                on_release=lambda x, idx=i: self.switch_to_list_by_index(idx)
-            )
-            self.drawer_list.add_widget(item)
-
-    def switch_to_list_by_index(self, index):
-        """Switch to a list by index (from drawer)"""
-        if 0 <= index < len(self.all_lists):
-            self.list_swiper.index = index
-            # on_swipe_list_change will be called automatically
-            if self.nav_drawer.state == "open":
-                self.nav_drawer.set_state("close")
-
     def load_tasks_for_list(self, list_id):
-        """Load tasks for a specific list with limit"""
         if list_id not in self.list_widgets:
             return
 
         task_list_widget = self.list_widgets[list_id]
         task_list_widget.clear_widgets()
 
-        # Get tasks with limit for performance
         tasks = self.db.get_tasks_by_list(list_id, show_completed=True)
-
-        # Limit to first 100 tasks for performance
         tasks = tasks[:100]
 
         for task in tasks:
-            # Main task
             task_item = TaskItem(
                 task_id=task.id,
                 task_title=task.title,
@@ -315,7 +394,6 @@ class MainScreen(MDScreen):
             )
             task_list_widget.add_widget(task_item)
 
-            # Subtasks
             for subtask in task.subtasks:
                 subtask_item = TaskItem(
                     task_id=subtask.id,
@@ -329,7 +407,6 @@ class MainScreen(MDScreen):
                 task_list_widget.add_widget(subtask_item)
 
     def load_tasks(self):
-        """Reload tasks for current list"""
         self.load_tasks_for_list(self.current_list_id)
 
     def show_add_task_dialog(self, *args):
@@ -346,7 +423,6 @@ class MainScreen(MDScreen):
         self.load_tasks()
 
     def delete_task(self, task_id):
-        """Delete a specific task"""
         from kivymd.uix.dialog import MDDialog
         from kivymd.uix.button import MDFlatButton, MDRaisedButton
 
@@ -354,10 +430,7 @@ class MainScreen(MDScreen):
             title="Delete Task",
             text="Are you sure you want to delete this task?",
             buttons=[
-                MDFlatButton(
-                    text="CANCEL",
-                    on_release=lambda x: dialog.dismiss()
-                ),
+                MDFlatButton(text="CANCEL", on_release=lambda x: dialog.dismiss()),
                 MDRaisedButton(
                     text="DELETE",
                     md_bg_color=(0.9, 0.2, 0.2, 1),
@@ -368,13 +441,11 @@ class MainScreen(MDScreen):
         dialog.open()
 
     def confirm_delete_task(self, task_id, dialog):
-        """Confirm and delete the task"""
         dialog.dismiss()
         self.db.delete_task(task_id)
         self.load_tasks()
 
     def open_task_details(self, task_id):
-        # Implemented in main.py
         pass
 
     def toggle_nav_drawer(self):
@@ -387,16 +458,10 @@ class MainScreen(MDScreen):
         from kivymd.uix.menu import MDDropdownMenu
 
         menu_items = [
-            {
-                "text": "Rename List",
-                "viewclass": "OneLineListItem",
-                "on_release": lambda: self.menu_action("rename"),
-            },
-            {
-                "text": "Delete List",
-                "viewclass": "OneLineListItem",
-                "on_release": lambda: self.menu_action("delete"),
-            },
+            {"text": "Rename List", "viewclass": "OneLineListItem",
+             "on_release": lambda: self.menu_action("rename")},
+            {"text": "Delete List", "viewclass": "OneLineListItem",
+             "on_release": lambda: self.menu_action("delete")},
         ]
 
         self.menu = MDDropdownMenu(
@@ -417,24 +482,20 @@ class MainScreen(MDScreen):
     def rename_list(self, new_name):
         if self.current_list_id:
             self.db.update_list(self.current_list_id, new_name)
-            self.toolbar.title = new_name
             self.current_list_name = new_name
-            self.all_lists = self.db.get_all_lists()
-            self.load_drawer_lists()
+            self.reload_all_data()
 
     def delete_current_list(self):
-        if self.current_list_id and len(self.all_lists) > 1:
+        lists = self.category_lists.get(self.current_category, [])
+        if self.current_list_id and len(lists) > 1:
             from kivymd.uix.dialog import MDDialog
             from kivymd.uix.button import MDFlatButton, MDRaisedButton
 
             dialog = MDDialog(
                 title="Delete List",
-                text=f"Are you sure you want to delete '{self.current_list_name}' and all its tasks?",
+                text=f"Delete '{self.current_list_name}' and all its tasks?",
                 buttons=[
-                    MDFlatButton(
-                        text="CANCEL",
-                        on_release=lambda x: dialog.dismiss()
-                    ),
+                    MDFlatButton(text="CANCEL", on_release=lambda x: dialog.dismiss()),
                     MDRaisedButton(
                         text="DELETE",
                         md_bg_color=(0.9, 0.2, 0.2, 1),
@@ -445,70 +506,20 @@ class MainScreen(MDScreen):
             dialog.open()
 
     def confirm_delete_list(self, dialog):
-        """Confirm and delete the current list"""
         self.db.delete_list(self.current_list_id)
         dialog.dismiss()
-
-        # Reload all lists
-        self.all_lists = self.db.get_all_lists()
-        self.build_list_swiper()
-        self.load_drawer_lists()
+        self.reload_all_data()
 
     def show_add_list_dialog(self, *args):
         dialog = AddTaskDialog(self.add_list, title="New List", hint="List name")
         dialog.show()
 
     def add_list(self, name):
-        list_id = self.db.create_list(name)
+        self.db.create_list(name, self.current_category)
+        self.reload_all_data()
 
-        # Reload all lists
-        self.all_lists = self.db.get_all_lists()
+    def reload_all_data(self):
+        categories_data = self.db.get_all_categories_with_lists()
+        self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
         self.build_list_swiper()
-        self.load_drawer_lists()
-
-        # Switch to new list
-        new_index = len(self.all_lists) - 1
-        self.list_swiper.index = new_index
-
-    def toggle_search(self):
-        """Toggle search bar"""
-        if hasattr(self, 'search_field') and self.search_field.parent:
-            # Remove search field
-            self.search_field.parent.remove_widget(self.search_field)
-        else:
-            # Add search field
-            from kivymd.uix.textfield import MDTextField
-
-            # Find the content box
-            content_box = self.toolbar.parent
-
-            self.search_field = MDTextField(
-                hint_text="Search tasks...",
-                mode="rectangle",
-                size_hint_y=None,
-                height=dp(56),
-                on_text=self.on_search_text
-            )
-            content_box.add_widget(self.search_field, index=1)
-
-    def on_search_text(self, instance, text):
-        """Filter tasks based on search"""
-        if not text.strip():
-            self.load_tasks()
-            return
-
-        # Filter current tasks
-        if self.current_list_id not in self.list_widgets:
-            return
-
-        task_list_widget = self.list_widgets[self.current_list_id]
-
-        # Hide tasks that don't match
-        for child in task_list_widget.children:
-            if isinstance(child, TaskItem):
-                if text.lower() in child.task_title.lower():
-                    child.opacity = 1
-                    child.disabled = False
-                else:
-                    child.opacity = 0.3
-                    child.disabled = True
+        self.load_drawer_categories()
