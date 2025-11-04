@@ -5,7 +5,9 @@ from kivymd.uix.textfield import MDTextField
 from kivymd.uix.button import MDRaisedButton, MDFlatButton
 from kivymd.uix.list import MDList, TwoLineListItem
 from kivymd.uix.scrollview import MDScrollView
+from kivymd.uix.card import MDCard
 from kivy.metrics import dp
+from kivymd.app import MDApp
 from components.dialogs import AddTaskDialog, TimePickerDialog, RecurrenceDialog
 from kivymd.uix.pickers import MDDatePicker
 from database.db_manager import DatabaseManager
@@ -24,15 +26,24 @@ class TaskDetailScreen(MDScreen):
         self.build_ui()
         self.load_task_data()
 
+    def get_toolbar_color(self):
+        """Get toolbar color based on current theme"""
+        app = MDApp.get_running_app()
+        if app and app.theme_cls.theme_style == "Dark":
+            return (0.12, 0.12, 0.12, 1)  # Dull dark
+        else:
+            return (0.96, 0.96, 0.96, 1)  # Dull white/light
+
     def build_ui(self):
         layout = MDBoxLayout(orientation='vertical')
 
-        # Toolbar
+        # Toolbar with dull color (only toolbar changes)
         toolbar = MDTopAppBar(
             title="Task Details",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
             right_action_items=[["delete", lambda x: self.delete_task()]],
-            elevation=2
+            elevation=2,
+            md_bg_color=self.get_toolbar_color()
         )
         layout.add_widget(toolbar)
 
@@ -46,92 +57,133 @@ class TaskDetailScreen(MDScreen):
         )
         content.bind(minimum_height=content.setter('height'))
 
-        # Title field
+        # Title field in card
+        title_card = MDCard(
+            orientation='vertical',
+            padding=dp(12),
+            size_hint_y=None,
+            height=dp(80),
+            elevation=2,
+            radius=[dp(12)]
+        )
+
         self.title_field = MDTextField(
             hint_text="Task title",
-            mode="rectangle",
+            mode="fill",
             size_hint_y=None,
             height=dp(56)
         )
         self.title_field.bind(text=self.on_title_change)
-        content.add_widget(self.title_field)
+        title_card.add_widget(self.title_field)
+        content.add_widget(title_card)
 
-        # Notes field
+        # Notes field in card
+        notes_card = MDCard(
+            orientation='vertical',
+            padding=dp(12),
+            size_hint_y=None,
+            height=dp(150),
+            elevation=2,
+            radius=[dp(12)]
+        )
+
         self.notes_field = MDTextField(
-            hint_text="Add notes",
-            mode="rectangle",
+            hint_text="Add notes...",
+            mode="fill",
             multiline=True,
             size_hint_y=None,
             height=dp(120)
         )
         self.notes_field.bind(text=self.on_notes_change)
-        content.add_widget(self.notes_field)
+        notes_card.add_widget(self.notes_field)
+        content.add_widget(notes_card)
 
-        # Due date button
+        # Action buttons section with BLUE buttons
+        buttons_card = MDCard(
+            orientation='vertical',
+            padding=dp(12),
+            spacing=dp(10),
+            size_hint_y=None,
+            height=dp(340),
+            elevation=2,
+            radius=[dp(12)]
+        )
+
+        # Due date button (BLUE)
         self.due_date_btn = MDRaisedButton(
             text="📅 Set Due Date",
-            md_bg_color=BUTTON_COLOR,
+            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
             pos_hint={"center_x": 0.5},
-            size_hint_x=0.9,
-            on_release=self.show_date_picker
+            size_hint_x=0.95,
+            size_hint_y=None,
+            height=dp(50),
+            on_release=self.show_date_picker,
+            elevation=4
         )
-        content.add_widget(self.due_date_btn)
+        buttons_card.add_widget(self.due_date_btn)
 
-        # Start time button
+        # Start time button (BLUE)
         self.start_time_btn = MDRaisedButton(
             text="🕐 Set Start Time",
-            md_bg_color=BUTTON_COLOR,
+            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
             pos_hint={"center_x": 0.5},
-            size_hint_x=0.9,
-            on_release=self.show_start_time_picker
+            size_hint_x=0.95,
+            size_hint_y=None,
+            height=dp(50),
+            on_release=self.show_start_time_picker,
+            elevation=4
         )
-        content.add_widget(self.start_time_btn)
+        buttons_card.add_widget(self.start_time_btn)
 
-        # End time button
+        # End time button (BLUE)
         self.end_time_btn = MDRaisedButton(
             text="🕐 Set End Time",
-            md_bg_color=BUTTON_COLOR,
+            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
             pos_hint={"center_x": 0.5},
-            size_hint_x=0.9,
-            on_release=self.show_end_time_picker
+            size_hint_x=0.95,
+            size_hint_y=None,
+            height=dp(50),
+            on_release=self.show_end_time_picker,
+            elevation=4
         )
-        content.add_widget(self.end_time_btn)
+        buttons_card.add_widget(self.end_time_btn)
 
-        # Reminder time button
+        # Reminder time button (BLUE)
         self.reminder_time_btn = MDRaisedButton(
             text="⏰ Set Reminder Time",
-            md_bg_color=BUTTON_COLOR,
+            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
             pos_hint={"center_x": 0.5},
-            size_hint_x=0.9,
-            on_release=self.show_reminder_time_picker
+            size_hint_x=0.95,
+            size_hint_y=None,
+            height=dp(50),
+            on_release=self.show_reminder_time_picker,
+            elevation=4
         )
-        content.add_widget(self.reminder_time_btn)
+        buttons_card.add_widget(self.reminder_time_btn)
 
-        # Recurrence button
+        # Recurrence button (BLUE)
         self.recurrence_btn = MDRaisedButton(
             text="🔄 Set Recurrence",
-            md_bg_color=BUTTON_COLOR,
+            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
             pos_hint={"center_x": 0.5},
-            size_hint_x=0.9,
-            on_release=self.show_recurrence_dialog
-        )
-        content.add_widget(self.recurrence_btn)
-
-        # Divider
-        from kivymd.uix.label import MDLabel
-        content.add_widget(MDLabel(
-            text="─" * 40,
-            halign="center",
+            size_hint_x=0.95,
             size_hint_y=None,
-            height=dp(20)
-        ))
+            height=dp(50),
+            on_release=self.show_recurrence_dialog,
+            elevation=4
+        )
+        buttons_card.add_widget(self.recurrence_btn)
+
+        content.add_widget(buttons_card)
 
         # Subtasks section
+        from kivymd.uix.label import MDLabel
         content.add_widget(MDLabel(
             text="Subtasks",
             font_style="H6",
             size_hint_y=None,
-            height=dp(40)
+            height=dp(40),
+            bold=True
         ))
 
         self.subtask_list = MDList()
@@ -259,8 +311,7 @@ class TaskDetailScreen(MDScreen):
             self.recurrence_btn.text = "🔄 Set Recurrence"
 
     def show_add_subtask_dialog(self, *args):
-        dialog = AddTaskDialog(self.add_subtask)
-        dialog.dialog.title = "New Subtask"
+        dialog = AddTaskDialog(self.add_subtask, title="New Subtask", hint="Subtask title")
         dialog.show()
 
     def add_subtask(self, title):

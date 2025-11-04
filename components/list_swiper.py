@@ -13,7 +13,8 @@ class ListSwiper(Carousel):
         self.bind(index=self._on_index_change)
 
     def _on_index_change(self, instance, value):
-        if self.on_list_change:
+        # FIXED: Check if value is not None before calling callback
+        if self.on_list_change and value is not None:
             self.on_list_change(value)
 
     def add_list_slide(self, list_widget):

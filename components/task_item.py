@@ -4,6 +4,8 @@ from kivymd.uix.selectioncontrol import MDCheckbox
 from kivymd.uix.button import MDIconButton
 from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty
 from kivy.metrics import dp
+from kivy.graphics import Color, RoundedRectangle
+from kivymd.app import MDApp
 
 
 class TaskItem(MDBoxLayout):
@@ -23,18 +25,48 @@ class TaskItem(MDBoxLayout):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
-        self.height = dp(80 if self.task_start_time or self.task_recurrence else 60)
-        self.padding = [dp(16) if not self.is_subtask else dp(48), dp(8), dp(8), dp(8)]
+        self.height = dp(90 if self.task_start_time or self.task_recurrence else 70)
+        self.padding = [dp(12) if not self.is_subtask else dp(40), dp(8), dp(8), dp(8)]
         self.spacing = dp(12)
+
+        # Add card-like background that adapts to theme
+        with self.canvas.before:
+            self.bg_color = Color(0.98, 0.98, 0.98, 1)  # Will be updated based on theme
+            self.bg_rect = RoundedRectangle(
+                pos=self.pos,
+                size=self.size,
+                radius=[dp(12)]
+            )
+
+        self.bind(pos=self._update_rect, size=self._update_rect)
+        self.update_theme_colors()
 
         self.build_ui()
 
+    def update_theme_colors(self):
+        """Update colors based on current theme"""
+        app = MDApp.get_running_app()
+        if app and app.theme_cls:
+            if app.theme_cls.theme_style == "Dark":
+                # Dark theme: slightly lighter than background
+                self.bg_color.rgba = (0.15, 0.15, 0.15, 1)
+            else:
+                # Light theme: light gray
+                self.bg_color.rgba = (0.98, 0.98, 0.98, 1)
+
+    def _update_rect(self, *args):
+        """Update background rectangle"""
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+
     def build_ui(self):
-        # Checkbox
+        # Modern checkbox
         self.checkbox = MDCheckbox(
             size_hint=(None, None),
-            size=(dp(24), dp(24)),
-            active=self.task_completed
+            size=(dp(28), dp(28)),
+            active=self.task_completed,
+            color_active=(0.1, 0.45, 0.91, 1),
+            color_inactive=(0.5, 0.5, 0.5, 0.6)
         )
         self.checkbox.bind(active=self.on_checkbox_active)
         self.add_widget(self.checkbox)
@@ -52,7 +84,8 @@ class TaskItem(MDBoxLayout):
             theme_text_color="Primary" if not self.task_completed else "Hint",
             strikethrough=self.task_completed,
             size_hint_y=None,
-            height=dp(24)
+            height=dp(28),
+            bold=True
         )
         content_layout.add_widget(self.title_label)
 
@@ -70,27 +103,27 @@ class TaskItem(MDBoxLayout):
                     font_style="Caption",
                     theme_text_color="Hint",
                     size_hint_y=None,
-                    height=dp(16)
+                    height=dp(18)
                 )
                 content_layout.add_widget(self.time_label)
 
         # Recurrence info (if exists)
         if self.task_recurrence:
             recurrence_icons = {
-                "today": "📅 Daily",
-                "week": "📅 Weekly",
-                "month": "📅 Monthly",
-                "year": "📅 Yearly",
-                "custom": "📅 Custom"
+                "today": "🔄 Daily",
+                "week": "🔄 Weekly",
+                "month": "🔄 Monthly",
+                "year": "🔄 Yearly",
+                "custom": "🔄 Custom"
             }
-            recurrence_text = recurrence_icons.get(self.task_recurrence, "📅 Repeating")
+            recurrence_text = recurrence_icons.get(self.task_recurrence, "🔄 Repeating")
 
             self.recurrence_label = MDLabel(
                 text=recurrence_text,
                 font_style="Caption",
                 theme_text_color="Hint",
                 size_hint_y=None,
-                height=dp(16)
+                height=dp(18)
             )
             content_layout.add_widget(self.recurrence_label)
 

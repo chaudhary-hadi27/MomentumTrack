@@ -9,9 +9,11 @@ from utils.constants import *
 
 
 class AddTaskDialog:
-    def __init__(self, callback):
+    def __init__(self, callback, title="New Task", hint="Task title"):
         self.callback = callback
         self.dialog = None
+        self.dialog_title = title
+        self.hint_text = hint
 
     def show(self):
         content = MDBoxLayout(
@@ -22,7 +24,7 @@ class AddTaskDialog:
         )
 
         self.title_field = MDTextField(
-            hint_text="Task title",
+            hint_text=self.hint_text,
             mode="rectangle",
             size_hint_y=None,
             height=dp(56)
@@ -30,7 +32,7 @@ class AddTaskDialog:
         content.add_widget(self.title_field)
 
         self.dialog = MDDialog(
-            title="New Task",
+            title=self.dialog_title,
             type="custom",
             content_cls=content,
             buttons=[
@@ -40,7 +42,7 @@ class AddTaskDialog:
                 ),
                 MDRaisedButton(
                     text="ADD",
-                    md_bg_color=BUTTON_COLOR,
+                    md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
                     on_release=self.on_add
                 ),
             ],
@@ -88,7 +90,7 @@ class EditListDialog:
                 ),
                 MDRaisedButton(
                     text="SAVE",
-                    md_bg_color=BUTTON_COLOR,
+                    md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
                     on_release=self.on_save
                 ),
             ],
@@ -156,7 +158,7 @@ class RecurrenceDialog:
         for label, value in options:
             btn = MDRaisedButton(
                 text=label,
-                md_bg_color=BUTTON_COLOR if self.current_type == value else (0.8, 0.8, 0.8, 1),
+                md_bg_color=(0.1, 0.45, 0.91, 1) if self.current_type == value else (0.6, 0.6, 0.6, 1),  # Blue or gray
                 size_hint_y=None,
                 height=dp(40),
                 on_release=lambda x, v=value: self.select_type(v)
@@ -186,7 +188,7 @@ class RecurrenceDialog:
                 ),
                 MDRaisedButton(
                     text="SAVE",
-                    md_bg_color=BUTTON_COLOR,
+                    md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
                     on_release=self.on_save
                 ),
             ],
@@ -196,11 +198,14 @@ class RecurrenceDialog:
     def select_type(self, recurrence_type):
         self.selected_type = recurrence_type
         self.interval_field.disabled = recurrence_type != RECURRENCE_CUSTOM
-        # Update button colors
+
+        # Update button colors - Blue for selected, gray for others
         for child in self.dialog.content_cls.children:
             if isinstance(child, MDRaisedButton):
-                child.md_bg_color = BUTTON_COLOR if child.text.startswith(self._get_label(recurrence_type)) else (
-                0.8, 0.8, 0.8, 1)
+                if child.text.startswith(self._get_label(recurrence_type)):
+                    child.md_bg_color = (0.1, 0.45, 0.91, 1)  # Blue
+                else:
+                    child.md_bg_color = (0.6, 0.6, 0.6, 1)  # Gray
 
     def _get_label(self, recurrence_type):
         labels = {
