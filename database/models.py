@@ -12,10 +12,10 @@ class TaskCategory:
     @staticmethod
     def get_all():
         return [
-            {"id": TaskCategory.DAILY, "name": "Daily Tasks", "icon": "🗓️"},
-            {"id": TaskCategory.WEEKEND, "name": "Weekend Tasks", "icon": "📅"},
-            {"id": TaskCategory.MONTHLY, "name": "Monthly Goals", "icon": "📆"},
-            {"id": TaskCategory.YEARLY, "name": "Yearly Goals", "icon": "🎯"}
+            {"id": TaskCategory.DAILY, "name": "Daily Tasks"},
+            {"id": TaskCategory.WEEKEND, "name": "Weekend Tasks"},
+            {"id": TaskCategory.MONTHLY, "name": "Monthly Goals"},
+            {"id": TaskCategory.YEARLY, "name": "Yearly Goals"}
         ]
 
     @staticmethod

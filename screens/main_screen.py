@@ -3,11 +3,11 @@ from kivymd.uix.toolbar import MDTopAppBar
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.list import MDList, TwoLineIconListItem, IconLeftWidget
-from kivymd.uix.button import MDIconButton, MDFloatingActionButton, MDFlatButton, MDRaisedButton
+from kivymd.uix.button import MDIconButton, MDFloatingActionButton, MDFlatButton
 from kivymd.uix.navigationdrawer import MDNavigationDrawer, MDNavigationLayout
 from kivymd.uix.spinner import MDSpinner
 from kivy.metrics import dp
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, RoundedRectangle, Line
 from kivy.clock import Clock
 from kivymd.app import MDApp
 from kivymd.toast import toast
@@ -20,15 +20,15 @@ from utils.constants import Colors, MAX_TASKS_PER_LIST
 
 
 class ListTabs(MDBoxLayout):
-    """Horizontal scrollable tabs for lists"""
+    """Clean horizontal tabs like Google Tasks"""
 
     def __init__(self, lists=None, on_list_select=None, on_add_list=None, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
-        self.height = dp(56)
-        self.padding = [dp(8), dp(4)]
-        self.spacing = dp(8)
+        self.height = dp(48)
+        self.padding = [dp(4), 0]
+        self.spacing = 0
 
         self.lists = lists or []
         self.on_list_select = on_list_select
@@ -36,80 +36,139 @@ class ListTabs(MDBoxLayout):
         self.current_list_id = None
         self.tab_buttons = {}
 
+        # Add bottom border
+        with self.canvas.after:
+            self.border_color = Color(0.9, 0.9, 0.9, 1)
+            self.border_line = Line(width=1)
+
+        self.bind(pos=self._update_border, size=self._update_border)
+
         # Scrollable container
         self.scroll = MDScrollView(
             do_scroll_y=False,
             do_scroll_x=True,
-            bar_width=0
+            bar_width=0,
+            size_hint_x=1
         )
 
         self.tab_container = MDBoxLayout(
             orientation='horizontal',
             size_hint_x=None,
-            spacing=dp(8),
-            padding=[dp(4), 0]
+            spacing=0,
+            padding=[dp(8), 0]
         )
         self.tab_container.bind(minimum_width=self.tab_container.setter('width'))
 
         self.scroll.add_widget(self.tab_container)
         self.add_widget(self.scroll)
 
-        # Add button
-        self.add_btn = MDRaisedButton(
-            text="+",
+        # Add button - minimal icon style
+        self.add_btn = MDIconButton(
+            icon="plus",
             size_hint=(None, None),
-            size=(dp(48), dp(40)),
-            md_bg_color=Colors.PRIMARY_BLUE,
-            on_release=lambda x: self.on_add_list() if self.on_add_list else None,
-            elevation=4
+            size=(dp(48), dp(48)),
+            on_release=lambda x: self.on_add_list() if self.on_add_list else None
         )
         self.add_widget(self.add_btn)
 
         self.update_tabs()
 
+    def _update_border(self, *args):
+        """Update bottom border line"""
+        self.border_line.points = [
+            self.x, self.y,
+            self.x + self.width, self.y
+        ]
+        # Update border color based on theme
+        app = MDApp.get_running_app()
+        if app and app.theme_cls.theme_style == "Dark":
+            self.border_color.rgba = (0.3, 0.3, 0.3, 1)
+        else:
+            self.border_color.rgba = (0.9, 0.9, 0.9, 1)
+
     def update_tabs(self):
+        """Create clean tab buttons"""
         self.tab_container.clear_widgets()
         self.tab_buttons.clear()
 
         for lst in self.lists:
+            # Create tab button container
+            tab_wrapper = MDBoxLayout(
+                orientation='vertical',
+                size_hint=(None, None),
+                size=(dp(120), dp(48)),
+                spacing=0
+            )
+
+            # Tab button
             btn = MDFlatButton(
                 text=lst.name,
                 size_hint=(None, None),
-                size=(dp(120), dp(40)),
-                on_release=lambda x, lid=lst.id: self._on_tab_click(lid)
+                size=(dp(120), dp(45)),
+                on_release=lambda x, lid=lst.id: self._on_tab_click(lid),
+                md_bg_color=(0, 0, 0, 0)  # Transparent background
             )
-            self.tab_buttons[lst.id] = btn
-            self.tab_container.add_widget(btn)
+
+            # Bottom indicator line (will be drawn in canvas)
+            tab_wrapper.btn = btn
+            tab_wrapper.list_id = lst.id
+
+            with tab_wrapper.canvas.after:
+                tab_wrapper.indicator_color = Color(0, 0, 0, 0)  # Hidden by default
+                tab_wrapper.indicator = Line(width=3)
+
+            tab_wrapper.bind(pos=self._update_indicator, size=self._update_indicator)
+            tab_wrapper.add_widget(btn)
+
+            self.tab_buttons[lst.id] = tab_wrapper
+            self.tab_container.add_widget(tab_wrapper)
 
         if self.current_list_id and self.current_list_id in self.tab_buttons:
             self.highlight_tab(self.current_list_id)
 
+    def _update_indicator(self, instance, value):
+        """Update indicator line position"""
+        if hasattr(instance, 'indicator'):
+            # Draw line at bottom of tab
+            instance.indicator.points = [
+                instance.x, instance.y,
+                instance.x + instance.width, instance.y
+            ]
+
     def highlight_tab(self, list_id):
+        """Highlight selected tab with minimal style"""
         self.current_list_id = list_id
         app = MDApp.get_running_app()
+        is_dark = app and app.theme_cls.theme_style == "Dark"
 
-        for lid, btn in self.tab_buttons.items():
+        for lid, tab_wrapper in self.tab_buttons.items():
+            btn = tab_wrapper.btn
+
             if lid == list_id:
-                btn.md_bg_color = Colors.PRIMARY_BLUE
-                btn.text_color = (1, 1, 1, 1)
+                # Active tab - Blue text and indicator
+                btn.text_color = Colors.PRIMARY_BLUE
+                tab_wrapper.indicator_color.rgba = Colors.PRIMARY_BLUE
             else:
-                if app and app.theme_cls.theme_style == "Dark":
-                    btn.md_bg_color = Colors.GRAY_DARK
-                    btn.text_color = (1, 1, 1, 0.7)
+                # Inactive tab - Gray text, no indicator
+                if is_dark:
+                    btn.text_color = (0.7, 0.7, 0.7, 1)
                 else:
-                    btn.md_bg_color = Colors.GRAY_LIGHT
-                    btn.text_color = (0, 0, 0, 0.7)
+                    btn.text_color = (0.4, 0.4, 0.4, 1)
+                tab_wrapper.indicator_color.rgba = (0, 0, 0, 0)  # Hide indicator
 
     def _on_tab_click(self, list_id):
+        """Handle tab click"""
         self.highlight_tab(list_id)
         if self.on_list_select:
             self.on_list_select(list_id)
 
     def set_lists(self, lists):
+        """Update lists and rebuild tabs"""
         self.lists = lists
         self.update_tabs()
 
     def select_list(self, list_id):
+        """Programmatically select a list"""
         self.highlight_tab(list_id)
 
 
@@ -336,13 +395,13 @@ class MainScreen(MDScreen):
             self.load_tasks_for_list(self.current_list_id)
 
     def update_toolbar_title(self):
-        """Update toolbar with category name"""
+        """Update toolbar with category name - WITHOUT EMOJI"""
         cat_info = next((c for c in TaskCategory.get_all() if c['id'] == self.current_category), None)
         if cat_info:
-            self.toolbar.title = f"{cat_info['icon']} {cat_info['name']}"
+            self.toolbar.title = cat_info['name']
 
     def load_drawer_categories(self):
-        """Load only categories in drawer"""
+        """Load only categories in drawer - WITHOUT EMOJIS"""
         self.drawer_list.clear_widgets()
 
         for cat in TaskCategory.get_all():
@@ -350,8 +409,8 @@ class MainScreen(MDScreen):
             lists = self.category_lists.get(cat_id, [])
 
             category_item = TwoLineIconListItem(
-                text=f"{cat['icon']} {cat['name']}",
-                secondary_text=f"{len(lists)} list(s)",
+                text=cat['name'],
+                secondary_text=f"{len(lists)} lists",
                 on_release=lambda x, c=cat_id: self.switch_to_category(c)
             )
 
