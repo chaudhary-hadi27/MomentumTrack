@@ -3,6 +3,7 @@ from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.button import MDRaisedButton, MDFlatButton
 from kivy.metrics import dp
 from kivymd.app import MDApp
+from utils.constants import Colors
 
 
 class ListTabs(MDBoxLayout):
@@ -45,7 +46,7 @@ class ListTabs(MDBoxLayout):
             text="+",
             size_hint=(None, None),
             size=(dp(48), dp(40)),
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=Colors.PRIMARY_BLUE,
             on_release=self._on_add_list,
             elevation=4
         )
@@ -82,15 +83,15 @@ class ListTabs(MDBoxLayout):
         for lid, btn in self.tab_buttons.items():
             if lid == list_id:
                 # Selected tab - Blue background
-                btn.md_bg_color = (0.1, 0.45, 0.91, 1)
+                btn.md_bg_color = Colors.PRIMARY_BLUE
                 btn.text_color = (1, 1, 1, 1)
             else:
-                # Unselected tab - Transparent with theme text
+                # Unselected tab - Theme appropriate background
                 if app and app.theme_cls.theme_style == "Dark":
-                    btn.md_bg_color = (0.2, 0.2, 0.2, 0.5)
+                    btn.md_bg_color = Colors.GRAY_DARK
                     btn.text_color = (1, 1, 1, 0.7)
                 else:
-                    btn.md_bg_color = (0.9, 0.9, 0.9, 0.5)
+                    btn.md_bg_color = Colors.GRAY_LIGHT
                     btn.text_color = (0, 0, 0, 0.7)
 
     def _on_tab_click(self, list_id):

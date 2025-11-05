@@ -8,11 +8,12 @@ from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.card import MDCard
 from kivy.metrics import dp
 from kivymd.app import MDApp
+from kivymd.toast import toast
 from components.dialogs import AddTaskDialog, TimePickerDialog, RecurrenceDialog
 from kivymd.uix.pickers import MDDatePicker
 from database.db_manager import DatabaseManager
 from utils.helpers import format_date
-from utils.constants import BUTTON_COLOR
+from utils.constants import Colors
 
 
 class TaskDetailScreen(MDScreen):
@@ -23,6 +24,7 @@ class TaskDetailScreen(MDScreen):
         self.db = DatabaseManager()
         self.task = None
         self.toolbar = None
+        self._theme_bound = False
 
         self.build_ui()
         self.load_task_data()
@@ -31,6 +33,23 @@ class TaskDetailScreen(MDScreen):
         app = MDApp.get_running_app()
         if app:
             app.theme_cls.bind(theme_style=self.on_theme_change)
+            self._theme_bound = True
+
+    def on_pre_leave(self):
+        """Unbind theme when leaving screen"""
+        if self._theme_bound:
+            app = MDApp.get_running_app()
+            if app:
+                app.theme_cls.unbind(theme_style=self.on_theme_change)
+                self._theme_bound = False
+
+    def on_pre_enter(self):
+        """Re-bind theme when entering screen"""
+        if not self._theme_bound:
+            app = MDApp.get_running_app()
+            if app:
+                app.theme_cls.bind(theme_style=self.on_theme_change)
+                self._theme_bound = True
 
     def update_toolbar_colors(self):
         """Update toolbar icon colors based on theme"""
@@ -39,17 +58,16 @@ class TaskDetailScreen(MDScreen):
 
         app = MDApp.get_running_app()
         if app.theme_cls.theme_style == "Light":
-            self.toolbar.specific_text_color = [0, 0, 0, 0.87]  # Black
+            self.toolbar.specific_text_color = Colors.LIGHT_TEXT
         else:
-            self.toolbar.specific_text_color = [1, 1, 1, 1]  # White
+            self.toolbar.specific_text_color = Colors.DARK_TEXT
 
     def on_theme_change(self, instance, value):
         """Called when theme changes"""
         if self.toolbar:
             self.toolbar.md_bg_color = self.get_toolbar_color()
             self.update_toolbar_colors()
-
-            # Rebuild toolbar items to apply new colors
+            # Rebuild toolbar items
             self.toolbar.left_action_items = [["arrow-left", lambda x: self.go_back()]]
             self.toolbar.right_action_items = [["delete", lambda x: self.delete_task()]]
 
@@ -57,14 +75,13 @@ class TaskDetailScreen(MDScreen):
         """Get toolbar color based on current theme"""
         app = MDApp.get_running_app()
         if app and app.theme_cls.theme_style == "Dark":
-            return (0.12, 0.12, 0.12, 1)  # Dark gray
-        else:
-            return (0.96, 0.96, 0.96, 1)  # Light gray for better contrast
+            return Colors.DARK_BG
+        return Colors.LIGHT_BG
 
     def build_ui(self):
         layout = MDBoxLayout(orientation='vertical')
 
-        # Toolbar with theme-aware color
+        # Toolbar
         self.toolbar = MDTopAppBar(
             title="Task Details",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
@@ -72,10 +89,7 @@ class TaskDetailScreen(MDScreen):
             elevation=2,
             md_bg_color=self.get_toolbar_color()
         )
-
-        # Set icon color after toolbar creation
         self.update_toolbar_colors()
-
         layout.add_widget(self.toolbar)
 
         # Scrollable content
@@ -129,7 +143,7 @@ class TaskDetailScreen(MDScreen):
         notes_card.add_widget(self.notes_field)
         content.add_widget(notes_card)
 
-        # Action buttons section with BLUE buttons
+        # Action buttons section
         buttons_card = MDCard(
             orientation='vertical',
             padding=dp(12),
@@ -140,10 +154,10 @@ class TaskDetailScreen(MDScreen):
             radius=[dp(12)]
         )
 
-        # Due date button (BLUE)
+        # Due date button
         self.due_date_btn = MDRaisedButton(
             text="📅 Set Due Date",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=Colors.PRIMARY_BLUE,
             pos_hint={"center_x": 0.5},
             size_hint_x=0.95,
             size_hint_y=None,
@@ -153,10 +167,10 @@ class TaskDetailScreen(MDScreen):
         )
         buttons_card.add_widget(self.due_date_btn)
 
-        # Start time button (BLUE)
+        # Start time button
         self.start_time_btn = MDRaisedButton(
             text="🕐 Set Start Time",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=Colors.PRIMARY_BLUE,
             pos_hint={"center_x": 0.5},
             size_hint_x=0.95,
             size_hint_y=None,
@@ -166,10 +180,10 @@ class TaskDetailScreen(MDScreen):
         )
         buttons_card.add_widget(self.start_time_btn)
 
-        # End time button (BLUE)
+        # End time button
         self.end_time_btn = MDRaisedButton(
             text="🕐 Set End Time",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=Colors.PRIMARY_BLUE,
             pos_hint={"center_x": 0.5},
             size_hint_x=0.95,
             size_hint_y=None,
@@ -179,10 +193,10 @@ class TaskDetailScreen(MDScreen):
         )
         buttons_card.add_widget(self.end_time_btn)
 
-        # Reminder time button (BLUE)
+        # Reminder time button
         self.reminder_time_btn = MDRaisedButton(
             text="⏰ Set Reminder Time",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=Colors.PRIMARY_BLUE,
             pos_hint={"center_x": 0.5},
             size_hint_x=0.95,
             size_hint_y=None,
@@ -192,10 +206,10 @@ class TaskDetailScreen(MDScreen):
         )
         buttons_card.add_widget(self.reminder_time_btn)
 
-        # Recurrence button (BLUE)
+        # Recurrence button
         self.recurrence_btn = MDRaisedButton(
             text="🔄 Set Recurrence",
-            md_bg_color=(0.1, 0.45, 0.91, 1),  # Blue
+            md_bg_color=Colors.PRIMARY_BLUE,
             pos_hint={"center_x": 0.5},
             size_hint_x=0.95,
             size_hint_y=None,
@@ -233,8 +247,14 @@ class TaskDetailScreen(MDScreen):
         self.add_widget(layout)
 
     def load_task_data(self):
-        self.task = self.db.get_task_by_id(self.task_id)
-        if self.task:
+        """Load task data from database"""
+        try:
+            self.task = self.db.get_task_by_id(self.task_id)
+            if not self.task:
+                toast("Task not found")
+                self.go_back()
+                return
+
             self.title_field.text = self.task.title
             self.notes_field.text = self.task.notes or ""
 
@@ -264,13 +284,19 @@ class TaskDetailScreen(MDScreen):
 
             self.load_subtasks()
 
+        except Exception as e:
+            print(f"Error loading task: {e}")
+            toast("Error loading task")
+            self.go_back()
+
     def load_subtasks(self):
+        """Load subtasks for this task"""
         self.subtask_list.clear_widgets()
 
         if self.task and self.task.subtasks:
             for subtask in self.task.subtasks:
                 status_icon = "✓" if subtask.completed else "○"
-                item = TwoLineListItem(
+                item = TwoLineIconListItem(
                     text=f"{status_icon} {subtask.title}",
                     secondary_text="Completed" if subtask.completed else "Pending",
                     on_release=lambda x, sid=subtask.id: self.toggle_subtask(sid)
@@ -278,12 +304,20 @@ class TaskDetailScreen(MDScreen):
                 self.subtask_list.add_widget(item)
 
     def on_title_change(self, instance, value):
-        if self.task:
-            self.db.update_task(self.task_id, title=value)
+        """Handle title field changes"""
+        if self.task and value.strip():
+            try:
+                self.db.update_task(self.task_id, title=value)
+            except ValueError as e:
+                toast(f"Invalid title: {e}")
 
     def on_notes_change(self, instance, value):
+        """Handle notes field changes"""
         if self.task:
-            self.db.update_task(self.task_id, notes=value)
+            try:
+                self.db.update_task(self.task_id, notes=value)
+            except ValueError as e:
+                toast(f"Invalid notes: {e}")
 
     def show_date_picker(self, *args):
         date_dialog = MDDatePicker()
@@ -291,33 +325,53 @@ class TaskDetailScreen(MDScreen):
         date_dialog.open()
 
     def set_due_date(self, instance, value, date_range):
-        date_str = str(value)
-        self.db.update_task(self.task_id, due_date=date_str)
-        self.due_date_btn.text = f"📅 Due: {format_date(value)}"
+        try:
+            date_str = str(value)
+            self.db.update_task(self.task_id, due_date=date_str)
+            self.due_date_btn.text = f"📅 Due: {format_date(value)}"
+            toast("Due date set")
+        except Exception as e:
+            print(f"Error setting due date: {e}")
+            toast("Error setting due date")
 
     def show_start_time_picker(self, *args):
         dialog = TimePickerDialog(self.set_start_time, "Select Start Time")
         dialog.show()
 
     def set_start_time(self, time_str):
-        self.db.update_task(self.task_id, start_time=time_str)
-        self.start_time_btn.text = f"🕐 Start: {time_str}"
+        try:
+            self.db.update_task(self.task_id, start_time=time_str)
+            self.start_time_btn.text = f"🕐 Start: {time_str}"
+            toast("Start time set")
+        except Exception as e:
+            print(f"Error setting start time: {e}")
+            toast("Error setting start time")
 
     def show_end_time_picker(self, *args):
         dialog = TimePickerDialog(self.set_end_time, "Select End Time")
         dialog.show()
 
     def set_end_time(self, time_str):
-        self.db.update_task(self.task_id, end_time=time_str)
-        self.end_time_btn.text = f"🕐 End: {time_str}"
+        try:
+            self.db.update_task(self.task_id, end_time=time_str)
+            self.end_time_btn.text = f"🕐 End: {time_str}"
+            toast("End time set")
+        except Exception as e:
+            print(f"Error setting end time: {e}")
+            toast("Error setting end time")
 
     def show_reminder_time_picker(self, *args):
         dialog = TimePickerDialog(self.set_reminder_time, "Select Reminder Time")
         dialog.show()
 
     def set_reminder_time(self, time_str):
-        self.db.update_task(self.task_id, reminder_time=time_str)
-        self.reminder_time_btn.text = f"⏰ Reminder: {time_str}"
+        try:
+            self.db.update_task(self.task_id, reminder_time=time_str)
+            self.reminder_time_btn.text = f"⏰ Reminder: {time_str}"
+            toast("Reminder set")
+        except Exception as e:
+            print(f"Error setting reminder: {e}")
+            toast("Error setting reminder")
 
     def show_recurrence_dialog(self, *args):
         current_type = self.task.recurrence_type if self.task else None
@@ -326,20 +380,31 @@ class TaskDetailScreen(MDScreen):
         dialog.show()
 
     def set_recurrence(self, recurrence_type, interval):
-        self.db.update_task(self.task_id, recurrence_type=recurrence_type, recurrence_interval=interval)
+        try:
+            self.db.update_task(
+                self.task_id,
+                recurrence_type=recurrence_type,
+                recurrence_interval=interval
+            )
 
-        if recurrence_type:
-            recurrence_labels = {
-                "today": "Daily",
-                "week": "Weekly",
-                "month": "Monthly",
-                "year": "Yearly",
-                "custom": f"Every {interval} days"
-            }
-            label = recurrence_labels.get(recurrence_type, "Custom")
-            self.recurrence_btn.text = f"🔄 Repeats: {label}"
-        else:
-            self.recurrence_btn.text = "🔄 Set Recurrence"
+            if recurrence_type:
+                recurrence_labels = {
+                    "today": "Daily",
+                    "week": "Weekly",
+                    "month": "Monthly",
+                    "year": "Yearly",
+                    "custom": f"Every {interval} days"
+                }
+                label = recurrence_labels.get(recurrence_type, "Custom")
+                self.recurrence_btn.text = f"🔄 Repeats: {label}"
+                toast("Recurrence set")
+            else:
+                self.recurrence_btn.text = "🔄 Set Recurrence"
+                toast("Recurrence removed")
+
+        except Exception as e:
+            print(f"Error setting recurrence: {e}")
+            toast("Error setting recurrence")
 
     def show_add_subtask_dialog(self, *args):
         dialog = AddTaskDialog(self.add_subtask, title="New Subtask", hint="Subtask title")
@@ -347,20 +412,44 @@ class TaskDetailScreen(MDScreen):
 
     def add_subtask(self, title):
         if self.task:
-            self.db.create_task(
-                list_id=self.task.list_id,
-                title=title,
-                parent_id=self.task_id
-            )
-            self.load_task_data()
+            try:
+                self.db.create_task(
+                    list_id=self.task.list_id,
+                    title=title,
+                    parent_id=self.task_id
+                )
+                self.load_task_data()
+                toast("Subtask added")
+            except ValueError as e:
+                toast(f"Error: {e}")
 
     def toggle_subtask(self, subtask_id):
-        self.db.toggle_task_completed(subtask_id)
-        self.load_task_data()
+        try:
+            self.db.toggle_task_completed(subtask_id)
+            self.load_task_data()
+        except Exception as e:
+            print(f"Error toggling subtask: {e}")
+            toast("Error updating subtask")
 
     def delete_task(self):
-        self.db.delete_task(self.task_id)
-        self.go_back()
+        from components.dialogs import ConfirmDialog
+
+        dialog = ConfirmDialog(
+            title="Delete Task",
+            message="Are you sure you want to delete this task?",
+            callback=self.confirm_delete,
+            confirm_text="DELETE"
+        )
+        dialog.show()
+
+    def confirm_delete(self):
+        try:
+            self.db.delete_task(self.task_id)
+            toast("Task deleted")
+            self.go_back()
+        except Exception as e:
+            print(f"Error deleting task: {e}")
+            toast("Error deleting task")
 
     def go_back(self):
         if self.on_back_callback:

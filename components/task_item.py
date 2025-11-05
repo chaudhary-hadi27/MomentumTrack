@@ -6,6 +6,7 @@ from kivy.properties import StringProperty, BooleanProperty, NumericProperty, Ob
 from kivy.metrics import dp
 from kivy.graphics import Color, RoundedRectangle
 from kivymd.app import MDApp
+from utils.constants import Colors
 
 
 class TaskItem(MDBoxLayout):
@@ -29,9 +30,9 @@ class TaskItem(MDBoxLayout):
         self.padding = [dp(12) if not self.is_subtask else dp(40), dp(8), dp(8), dp(8)]
         self.spacing = dp(12)
 
-        # Add card-like background that adapts to theme
+        # Add card-like background
         with self.canvas.before:
-            self.bg_color = Color(0.98, 0.98, 0.98, 1)  # Will be updated based on theme
+            self.bg_color = Color(*Colors.LIGHT_CARD)
             self.bg_rect = RoundedRectangle(
                 pos=self.pos,
                 size=self.size,
@@ -40,52 +41,40 @@ class TaskItem(MDBoxLayout):
 
         self.bind(pos=self._update_rect, size=self._update_rect)
         self.update_theme_colors()
-
         self.build_ui()
 
     def update_theme_colors(self):
-        """Update colors based on current theme"""
-        app = MDApp.get_running_app()
-        if app and app.theme_cls:
-            if app.theme_cls.theme_style == "Dark":
-                # Dark theme: slightly lighter than background
-                self.bg_color.rgba = (0.15, 0.15, 0.15, 1)
-            else:
-                # Light theme: white with subtle shadow effect
-                self.bg_color.rgba = (1, 1, 1, 1)
+        """Update colors based on current theme - optimized"""
+        if not hasattr(self, 'bg_color'):
+            return
 
-        # Update label colors if they exist
+        app = MDApp.get_running_app()
+        if not app or not app.theme_cls:
+            return
+
+        is_dark = app.theme_cls.theme_style == "Dark"
+
+        # Update background
+        self.bg_color.rgba = Colors.DARK_CARD if is_dark else Colors.LIGHT_CARD
+
+        # Update text colors if labels exist
         if hasattr(self, 'title_label'):
-            self.update_label_colors()
+            self._update_label_colors(is_dark)
 
-    def update_label_colors(self):
-        """Update text label colors based on theme"""
-        app = MDApp.get_running_app()
-        if app and app.theme_cls:
-            if app.theme_cls.theme_style == "Dark":
-                # Dark theme colors
-                if self.task_completed:
-                    self.title_label.color = (0.5, 0.5, 0.5, 1)  # Gray for completed
-                else:
-                    self.title_label.color = (1, 1, 1, 1)  # White for active
+    def _update_label_colors(self, is_dark):
+        """Internal method to update label colors"""
+        if self.task_completed:
+            self.title_label.color = (0.5, 0.5, 0.5, 1)
+        else:
+            self.title_label.color = Colors.DARK_TEXT if is_dark else Colors.LIGHT_TEXT
 
-                # Update time and recurrence labels if they exist
-                if hasattr(self, 'time_label'):
-                    self.time_label.color = (0.7, 0.7, 0.7, 1)
-                if hasattr(self, 'recurrence_label'):
-                    self.recurrence_label.color = (0.7, 0.7, 0.7, 1)
-            else:
-                # Light theme colors
-                if self.task_completed:
-                    self.title_label.color = (0.6, 0.6, 0.6, 1)  # Gray for completed
-                else:
-                    self.title_label.color = (0, 0, 0, 0.87)  # Almost black for active
+        # Update secondary labels
+        secondary_color = Colors.HINT_TEXT_DARK if is_dark else Colors.HINT_TEXT_LIGHT
 
-                # Update time and recurrence labels if they exist
-                if hasattr(self, 'time_label'):
-                    self.time_label.color = (0, 0, 0, 0.6)  # Gray text
-                if hasattr(self, 'recurrence_label'):
-                    self.recurrence_label.color = (0, 0, 0, 0.6)  # Gray text
+        if hasattr(self, 'time_label'):
+            self.time_label.color = secondary_color
+        if hasattr(self, 'recurrence_label'):
+            self.recurrence_label.color = secondary_color
 
     def _update_rect(self, *args):
         """Update background rectangle"""
@@ -98,7 +87,7 @@ class TaskItem(MDBoxLayout):
             size_hint=(None, None),
             size=(dp(28), dp(28)),
             active=self.task_completed,
-            color_active=(0.1, 0.45, 0.91, 1),
+            color_active=Colors.PRIMARY_BLUE,
             color_inactive=(0.5, 0.5, 0.5, 0.6)
         )
         self.checkbox.bind(active=self.on_checkbox_active)
@@ -110,7 +99,7 @@ class TaskItem(MDBoxLayout):
             spacing=dp(4)
         )
 
-        # Title - Use custom color instead of theme_text_color for better control
+        # Title
         self.title_label = MDLabel(
             text=self.task_title,
             font_style="Body1",
@@ -119,23 +108,21 @@ class TaskItem(MDBoxLayout):
             height=dp(28),
             bold=True
         )
-        # Set initial color based on theme
+
+        # Set initial color
         app = MDApp.get_running_app()
-        if app and app.theme_cls.theme_style == "Dark":
-            self.title_label.color = (0.5, 0.5, 0.5, 1) if self.task_completed else (1, 1, 1, 1)
-        else:
-            self.title_label.color = (0.6, 0.6, 0.6, 1) if self.task_completed else (0, 0, 0, 0.87)
+        if app and app.theme_cls:
+            is_dark = app.theme_cls.theme_style == "Dark"
+            if self.task_completed:
+                self.title_label.color = (0.5, 0.5, 0.5, 1)
+            else:
+                self.title_label.color = Colors.DARK_TEXT if is_dark else Colors.LIGHT_TEXT
 
         content_layout.add_widget(self.title_label)
 
-        # Time info (if exists)
+        # Time info
         if self.task_start_time or self.task_end_time:
-            time_text = ""
-            if self.task_start_time and self.task_end_time:
-                time_text = f"🕐 {self.task_start_time} - {self.task_end_time}"
-            elif self.task_start_time:
-                time_text = f"🕐 Starts at {self.task_start_time}"
-
+            time_text = self._get_time_text()
             if time_text:
                 self.time_label = MDLabel(
                     text=time_text,
@@ -143,36 +130,28 @@ class TaskItem(MDBoxLayout):
                     size_hint_y=None,
                     height=dp(18)
                 )
-                # Set color based on theme
-                if app and app.theme_cls.theme_style == "Dark":
-                    self.time_label.color = (0.7, 0.7, 0.7, 1)
-                else:
-                    self.time_label.color = (0, 0, 0, 0.6)
+
+                # Set color
+                if app and app.theme_cls:
+                    is_dark = app.theme_cls.theme_style == "Dark"
+                    self.time_label.color = Colors.HINT_TEXT_DARK if is_dark else Colors.HINT_TEXT_LIGHT
 
                 content_layout.add_widget(self.time_label)
 
-        # Recurrence info (if exists)
+        # Recurrence info
         if self.task_recurrence:
-            recurrence_icons = {
-                "today": "🔄 Daily",
-                "week": "🔄 Weekly",
-                "month": "🔄 Monthly",
-                "year": "🔄 Yearly",
-                "custom": "🔄 Custom"
-            }
-            recurrence_text = recurrence_icons.get(self.task_recurrence, "🔄 Repeating")
-
+            recurrence_text = self._get_recurrence_text()
             self.recurrence_label = MDLabel(
                 text=recurrence_text,
                 font_style="Caption",
                 size_hint_y=None,
                 height=dp(18)
             )
-            # Set color based on theme
-            if app and app.theme_cls.theme_style == "Dark":
-                self.recurrence_label.color = (0.7, 0.7, 0.7, 1)
-            else:
-                self.recurrence_label.color = (0, 0, 0, 0.6)
+
+            # Set color
+            if app and app.theme_cls:
+                is_dark = app.theme_cls.theme_style == "Dark"
+                self.recurrence_label.color = Colors.HINT_TEXT_DARK if is_dark else Colors.HINT_TEXT_LIGHT
 
             content_layout.add_widget(self.recurrence_label)
 
@@ -188,15 +167,39 @@ class TaskItem(MDBoxLayout):
         )
         self.add_widget(delete_btn)
 
+    def _get_time_text(self):
+        """Get formatted time text"""
+        if self.task_start_time and self.task_end_time:
+            return f"🕐 {self.task_start_time} - {self.task_end_time}"
+        elif self.task_start_time:
+            return f"🕐 Starts at {self.task_start_time}"
+        return ""
+
+    def _get_recurrence_text(self):
+        """Get formatted recurrence text"""
+        recurrence_icons = {
+            "today": "🔄 Daily",
+            "week": "🔄 Weekly",
+            "month": "🔄 Monthly",
+            "year": "🔄 Yearly",
+            "custom": "🔄 Custom"
+        }
+        return recurrence_icons.get(self.task_recurrence, "🔄 Repeating")
+
     def on_checkbox_active(self, checkbox, value):
         if self.on_toggle_complete:
             self.on_toggle_complete(self.task_id, value)
         self.update_completed_style(value)
 
     def update_completed_style(self, completed):
+        """Update visual style for completion status"""
         self.task_completed = completed
         self.title_label.strikethrough = completed
-        self.update_label_colors()
+
+        app = MDApp.get_running_app()
+        if app and app.theme_cls:
+            is_dark = app.theme_cls.theme_style == "Dark"
+            self._update_label_colors(is_dark)
 
     def on_delete_click(self, *args):
         if self.on_delete:

@@ -6,6 +6,7 @@ from kivymd.uix.selectioncontrol import MDSwitch
 from kivy.metrics import dp
 from kivymd.app import MDApp
 from kivy.clock import Clock
+from utils.constants import Colors
 
 
 class SettingsScreen(MDScreen):
@@ -13,12 +14,30 @@ class SettingsScreen(MDScreen):
         super().__init__(**kwargs)
         self.on_back_callback = on_back_callback
         self.toolbar = None
+        self._theme_bound = False
         self.build_ui()
 
         # Listen for theme changes
         app = MDApp.get_running_app()
         if app:
             app.theme_cls.bind(theme_style=self.on_theme_change)
+            self._theme_bound = True
+
+    def on_pre_leave(self):
+        """Unbind theme when leaving screen"""
+        if self._theme_bound:
+            app = MDApp.get_running_app()
+            if app:
+                app.theme_cls.unbind(theme_style=self.on_theme_change)
+                self._theme_bound = False
+
+    def on_pre_enter(self):
+        """Re-bind theme when entering screen"""
+        if not self._theme_bound:
+            app = MDApp.get_running_app()
+            if app:
+                app.theme_cls.bind(theme_style=self.on_theme_change)
+                self._theme_bound = True
 
     def update_toolbar_colors(self):
         """Update toolbar icon colors based on theme"""
@@ -27,41 +46,36 @@ class SettingsScreen(MDScreen):
 
         app = MDApp.get_running_app()
         if app.theme_cls.theme_style == "Light":
-            self.toolbar.specific_text_color = [0, 0, 0, 0.87]  # Black
+            self.toolbar.specific_text_color = Colors.LIGHT_TEXT
         else:
-            self.toolbar.specific_text_color = [1, 1, 1, 1]  # White
+            self.toolbar.specific_text_color = Colors.DARK_TEXT
 
     def on_theme_change(self, instance, value):
         """Called when theme changes"""
         if self.toolbar:
             self.toolbar.md_bg_color = self.get_toolbar_color()
             self.update_toolbar_colors()
-
-            # Rebuild toolbar items to apply new colors
+            # Rebuild toolbar items
             self.toolbar.left_action_items = [["arrow-left", lambda x: self.go_back()]]
 
     def get_toolbar_color(self):
         """Get toolbar color based on current theme"""
         app = MDApp.get_running_app()
         if app and app.theme_cls.theme_style == "Dark":
-            return (0.12, 0.12, 0.12, 1)  # Dark gray
-        else:
-            return (0.96, 0.96, 0.96, 1)  # Light gray for better contrast
+            return Colors.DARK_BG
+        return Colors.LIGHT_BG
 
     def build_ui(self):
         layout = MDBoxLayout(orientation='vertical')
 
-        # Toolbar with theme-aware color
+        # Toolbar
         self.toolbar = MDTopAppBar(
             title="Settings",
             left_action_items=[["arrow-left", lambda x: self.go_back()]],
             elevation=2,
             md_bg_color=self.get_toolbar_color()
         )
-
-        # Set icon color after toolbar creation
         self.update_toolbar_colors()
-
         layout.add_widget(self.toolbar)
 
         # Settings list
@@ -74,7 +88,7 @@ class SettingsScreen(MDScreen):
         )
         settings_list.bind(minimum_height=settings_list.setter('height'))
 
-        # Theme setting with switch
+        # Theme setting
         theme_container = MDBoxLayout(
             orientation='horizontal',
             size_hint_y=None,
@@ -89,7 +103,6 @@ class SettingsScreen(MDScreen):
         )
         theme_container.add_widget(theme_label)
 
-        # Create switch without active property first
         self.theme_switch = MDSwitch(
             size_hint=(None, None),
             size=(dp(50), dp(30)),
@@ -97,8 +110,8 @@ class SettingsScreen(MDScreen):
         )
         theme_container.add_widget(self.theme_switch)
 
-        # Set active state after switch is added and bound
-        Clock.schedule_once(lambda dt: self._init_switch(), 0.1)
+        # Initialize switch after creation
+        Clock.schedule_once(lambda dt: self._init_theme_switch(), 0.1)
 
         settings_list.add_widget(theme_container)
 
@@ -106,7 +119,7 @@ class SettingsScreen(MDScreen):
         from kivymd.uix.card import MDSeparator
         settings_list.add_widget(MDSeparator())
 
-        # Show completed tasks (future feature)
+        # Show completed tasks
         completed_container = MDBoxLayout(
             orientation='horizontal',
             size_hint_y=None,
@@ -127,7 +140,7 @@ class SettingsScreen(MDScreen):
         )
         completed_container.add_widget(self.completed_switch)
 
-        # Set completed switch active after initialization
+        # Initialize completed switch
         Clock.schedule_once(lambda dt: setattr(self.completed_switch, 'active', True), 0.1)
 
         settings_list.add_widget(completed_container)
@@ -135,7 +148,39 @@ class SettingsScreen(MDScreen):
         # Divider
         settings_list.add_widget(MDSeparator())
 
-        # About section
+        # App info section
+        info_container = MDBoxLayout(
+            orientation='vertical',
+            size_hint_y=None,
+            height=dp(120),
+            padding=[dp(16), dp(16)]
+        )
+
+        info_container.add_widget(MDLabel(
+            text="App Information",
+            font_style="H6",
+            bold=True,
+            size_hint_y=None,
+            height=dp(40)
+        ))
+
+        info_container.add_widget(MDLabel(
+            text="Momentum Track v1.0",
+            font_style="Body2",
+            size_hint_y=None,
+            height=dp(30)
+        ))
+
+        info_container.add_widget(MDLabel(
+            text="Time-based task management",
+            font_style="Caption",
+            size_hint_y=None,
+            height=dp(25)
+        ))
+
+        settings_list.add_widget(info_container)
+
+        # About button
         from kivymd.uix.button import MDFlatButton
         about_btn = MDFlatButton(
             text="About Momentum Track",
@@ -150,8 +195,8 @@ class SettingsScreen(MDScreen):
 
         self.add_widget(layout)
 
-    def _init_switch(self):
-        """Initialize switch state after widget is ready"""
+    def _init_theme_switch(self):
+        """Initialize theme switch state"""
         app = MDApp.get_running_app()
         self.theme_switch.active = app.theme_cls.theme_style == "Dark"
         self.theme_switch.bind(active=self.toggle_theme)
@@ -170,7 +215,14 @@ class SettingsScreen(MDScreen):
 
         dialog = MDDialog(
             title="About Momentum Track",
-            text="Momentum Track v1.0\n\nA modern task management app designed to help you stay focused and productive.\n\nBuilt with KivyMD",
+            text="Momentum Track v1.0\n\n"
+                 "A modern task management app designed to help you stay focused and productive.\n\n"
+                 "Features:\n"
+                 "• Time-based organization (Daily, Weekly, Monthly, Yearly)\n"
+                 "• Task scheduling with reminders\n"
+                 "• Subtask support\n"
+                 "• Dark/Light theme\n\n"
+                 "Built with KivyMD",
             buttons=[
                 MDFlatButton(
                     text="OK",
