@@ -8,6 +8,7 @@ from screens.settings_screen import SettingsScreen
 from utils.constants import APP_NAME
 from utils.notification_manager import NotificationManager
 from database.db_manager import DatabaseManager
+from utils.theme_manager import get_theme_manager
 from datetime import datetime, time
 import platform
 
@@ -24,8 +25,19 @@ class MomentumTrackApp(MDApp):
         self.notification_manager = NotificationManager(self.db)
         self.last_cleanup_date = None
 
+        # Initialize theme manager
+        self.theme_manager = get_theme_manager()
+
     def build(self):
         self.screen_manager = ScreenManager()
+
+        # Set initial theme from saved preference
+        self.theme_cls.theme_style = self.theme_manager.theme_style
+
+        # Run database optimization on first launch
+        from database.db_optimizer import DatabaseOptimizer
+        optimizer = DatabaseOptimizer()
+        optimizer.optimize_all()
 
         # Main screen
         main_screen = Screen(name='main')
@@ -34,6 +46,7 @@ class MomentumTrackApp(MDApp):
         self.main_screen_widget.open_settings = self.open_settings
         main_screen.add_widget(self.main_screen_widget)
         self.screen_manager.add_widget(main_screen)
+
 
         # Start notification manager
         self.notification_manager.start()

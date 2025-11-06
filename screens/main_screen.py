@@ -17,7 +17,9 @@ from components.dialogs import CreateTaskDialog, EditListDialog, ConfirmDialog
 from database.db_manager import DatabaseManager
 from database.models import TaskCategory
 from utils.constants import Colors, MAX_TASKS_PER_LIST
-
+from components.quick_actions import QuickActionsBar
+from components.task_item_enhanced import TaskItemEnhanced
+from utils.gesture_handler import PullToRefreshHandler
 
 class ListTabs(MDBoxLayout):
     """Clean horizontal tabs like Google Tasks"""
@@ -278,6 +280,18 @@ class MainScreen(MDScreen):
         )
         content_box.add_widget(self.list_tabs)
 
+        # Add quick actions bar
+        self.quick_actions = QuickActionsBar(
+            callbacks={
+                'add_task': self.show_add_task_dialog,
+                'search': self.show_search,
+                'sort': self.show_sort_options,
+                'filter': self.show_filter_options
+            },
+            pos_hint={'center_x': 0.5, 'y': 0.02}
+        )
+        content_box.add_widget(self.quick_actions)
+
         # List Swiper
         self.list_swiper = ListSwiper(on_list_change=self.on_swipe_list_change)
         content_box.add_widget(self.list_swiper)
@@ -394,6 +408,23 @@ class MainScreen(MDScreen):
             self.update_toolbar_title()
             self.load_tasks_for_list(self.current_list_id)
 
+            # Add pull-to-refresh
+            refresh_handler = PullToRefreshHandler(
+                scroll,
+                on_refresh=lambda: self.refresh_list(task_list.id)
+            )
+            self.refresh_handlers[task_list.id] = refresh_handler
+
+    def refresh_list(self, list_id):
+        """Refresh specific list"""
+        self.load_tasks_for_list(list_id)
+        # Call finish_refresh after loading
+        if list_id in self.refresh_handlers:
+            self.refresh_handlers[list_id].finish_refresh()
+
+
+
+
     def update_toolbar_title(self):
         """Update toolbar with category name - WITHOUT EMOJI"""
         cat_info = next((c for c in TaskCategory.get_all() if c['id'] == self.current_category), None)
@@ -484,7 +515,8 @@ class MainScreen(MDScreen):
             tasks = tasks[:MAX_TASKS_PER_LIST]
 
             for task in tasks:
-                task_item = TaskItem(
+                # Use enhanced task item instead of basic one
+                task_item = TaskItemEnhanced(
                     task_id=task.id,
                     task_title=task.title,
                     task_notes=task.notes,
@@ -495,10 +527,10 @@ class MainScreen(MDScreen):
                     task_completed=task.completed,
                     on_task_click=self.open_task_details,
                     on_toggle_complete=self.toggle_task_completed,
-                    on_delete=self.delete_task
+                    on_delete=self.delete_task,
+                    on_edit=self.edit_task,
+                    on_duplicate=self.duplicate_task
                 )
-                # Ensure theme colors are applied to new tasks
-                task_item.update_theme_colors()
                 task_list_widget.add_widget(task_item)
 
                 # Add subtasks
@@ -693,3 +725,18 @@ class MainScreen(MDScreen):
         self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
         self.build_list_swiper()
         self.load_drawer_categories()
+
+    def show_search(self):
+        """Show search dialog"""
+        # Implement search functionality
+        pass
+
+    def show_sort_options(self):
+        """Show sort menu"""
+        # Implement sort menu
+        pass
+
+    def show_filter_options(self):
+        """Show filter options"""
+        # Implement filter dialog
+        pass
