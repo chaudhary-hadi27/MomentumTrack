@@ -40,16 +40,23 @@ class NotificationManager:
 
                 self.last_check_time = current_time
 
-                # Get tasks with reminders
+                # Get tasks with reminders - now includes motivation quote
                 tasks = self.db.get_tasks_with_reminders_today()
 
                 for task in tasks:
-                    task_id, list_id, title, start_time, end_time, reminder_time = task
+                    task_id, list_id, title, start_time, end_time, reminder_time, motivation_quote = task
 
                     # Check if it's time to remind
                     if reminder_time and current_time == reminder_time:
-                        self.send_notification(title, f"Time to work on: {title}")
+                        # Build notification message with motivation quote
+                        message = f"Time to work on: {title}"
+                        if motivation_quote:
+                            message = f"💪 {motivation_quote}\n\n{message}"
+
+                        self.send_notification(title, message)
                         print(f"⏰ Reminder sent for: {title}")
+                        if motivation_quote:
+                            print(f"   💪 With quote: {motivation_quote}")
 
                 # Sleep for 10 seconds before next check
                 time.sleep(10)

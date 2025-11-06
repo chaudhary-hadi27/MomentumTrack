@@ -13,7 +13,7 @@ from kivymd.app import MDApp
 from kivymd.toast import toast
 from components.task_item import TaskItem
 from components.list_swiper import ListSwiper
-from components.dialogs import AddTaskDialog, EditListDialog, ConfirmDialog
+from components.dialogs import CreateTaskDialog, EditListDialog, ConfirmDialog
 from database.db_manager import DatabaseManager
 from database.models import TaskCategory
 from utils.constants import Colors, MAX_TASKS_PER_LIST
@@ -468,6 +468,7 @@ class MainScreen(MDScreen):
     def load_tasks_for_list(self, list_id):
         """Load tasks for a specific list with limit warning"""
         if list_id not in self.list_widgets:
+            print(f"Warning: List widget not found for list_id {list_id}")
             return
 
         task_list_widget = self.list_widgets[list_id]
@@ -490,11 +491,14 @@ class MainScreen(MDScreen):
                     task_start_time=task.start_time or "",
                     task_end_time=task.end_time or "",
                     task_recurrence=task.recurrence_type or "",
+                    task_motivation=task.motivation or "",
                     task_completed=task.completed,
                     on_task_click=self.open_task_details,
                     on_toggle_complete=self.toggle_task_completed,
                     on_delete=self.delete_task
                 )
+                # Ensure theme colors are applied to new tasks
+                task_item.update_theme_colors()
                 task_list_widget.add_widget(task_item)
 
                 # Add subtasks
@@ -508,6 +512,8 @@ class MainScreen(MDScreen):
                         on_toggle_complete=self.toggle_task_completed,
                         on_delete=self.delete_task
                     )
+                    # Apply theme to subtasks too
+                    subtask_item.update_theme_colors()
                     task_list_widget.add_widget(subtask_item)
 
         except Exception as e:
@@ -520,17 +526,44 @@ class MainScreen(MDScreen):
             self.load_tasks_for_list(self.current_list_id)
 
     def show_add_task_dialog(self, *args):
-        dialog = AddTaskDialog(self.add_task)
+        """Show comprehensive task creation dialog"""
+        if not self.current_list_id:
+            toast("No list selected")
+            return
+
+        dialog = CreateTaskDialog(self.add_task, self.current_list_id)
         dialog.show()
 
-    def add_task(self, title):
-        if self.current_list_id:
-            try:
-                self.db.create_task(self.current_list_id, title)
-                self.load_tasks()
-                toast("Task added")
-            except ValueError as e:
-                toast(f"Error: {e}")
+    def add_task(self, task_data):
+        """Add new task with comprehensive data"""
+        if not self.current_list_id:
+            toast("No list selected")
+            return
+
+        try:
+            # Create task with all fields
+            task_id = self.db.create_task(
+                list_id=self.current_list_id,
+                title=task_data['name'],
+                notes=task_data['description'],
+                start_time=task_data['start_time'],
+                end_time=task_data['end_time'],
+                reminder_time=task_data['reminder'],
+                motivation=task_data['motivation']
+            )
+
+            if task_id:
+                # Reload tasks for current list
+                self.load_tasks_for_list(self.current_list_id)
+                toast("✅ Task created successfully!")
+            else:
+                toast("Failed to create task")
+
+        except ValueError as e:
+            toast(f"Invalid task: {e}")
+        except Exception as e:
+            print(f"Error adding task: {e}")
+            toast("Failed to add task")
 
     def toggle_task_completed(self, task_id, completed):
         try:

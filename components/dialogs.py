@@ -2,10 +2,12 @@ from kivymd.uix.dialog import MDDialog
 from kivymd.uix.button import MDFlatButton, MDRaisedButton
 from kivymd.uix.textfield import MDTextField
 from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.label import MDLabel
 from kivymd.uix.pickers import MDTimePicker
 from kivy.metrics import dp
-from datetime import datetime
+from datetime import datetime, timedelta
 from utils.constants import *
+from kivymd.toast import toast
 
 
 class BaseDialog:
@@ -32,7 +34,290 @@ class BaseDialog:
             self.dialog.dismiss()
 
 
+class CreateTaskDialog(BaseDialog):
+    """Comprehensive task creation dialog with all fields"""
+
+    def __init__(self, callback, list_id):
+        super().__init__("Create New Task", callback)
+        self.list_id = list_id
+        self.task_data = {
+            'name': '',
+            'description': '',
+            'start_time': None,
+            'end_time': None,
+            'reminder': None,
+            'motivation': ''
+        }
+
+    def show(self):
+        from kivymd.uix.scrollview import MDScrollView
+
+        # Scrollable content
+        scroll = MDScrollView(
+            size_hint=(1, None),
+            height=dp(450)
+        )
+
+        content = MDBoxLayout(
+            orientation='vertical',
+            spacing=dp(12),
+            size_hint_y=None,
+            padding=[dp(8), dp(8)]
+        )
+        content.bind(minimum_height=content.setter('height'))
+
+        # Task Name (Required)
+        content.add_widget(MDLabel(
+            text="Task Name *",
+            font_style="Subtitle2",
+            size_hint_y=None,
+            height=dp(20),
+            bold=True
+        ))
+
+        self.name_field = MDTextField(
+            hint_text="Enter task name...",
+            mode="rectangle",
+            size_hint_y=None,
+            height=dp(56),
+            required=True
+        )
+        self.name_field.bind(text=self.on_name_change)
+        content.add_widget(self.name_field)
+
+        # Description (Optional)
+        content.add_widget(MDLabel(
+            text="Description (optional)",
+            font_style="Subtitle2",
+            size_hint_y=None,
+            height=dp(20),
+            theme_text_color="Hint"
+        ))
+
+        self.description_field = MDTextField(
+            hint_text="Add details...",
+            mode="rectangle",
+            multiline=True,
+            size_hint_y=None,
+            height=dp(80)
+        )
+        content.add_widget(self.description_field)
+
+        # Timing Section
+        content.add_widget(MDLabel(
+            text="⏰ Timing",
+            font_style="Subtitle1",
+            size_hint_y=None,
+            height=dp(30),
+            bold=True
+        ))
+
+        # Start Time (Required)
+        start_time_box = MDBoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(56),
+            spacing=dp(8)
+        )
+
+        start_time_label = MDLabel(
+            text="Start Time *",
+            size_hint_x=0.4,
+            font_style="Body2",
+            bold=True
+        )
+        start_time_box.add_widget(start_time_label)
+
+        self.start_time_btn = MDRaisedButton(
+            text="Select Time 🕐",
+            md_bg_color=Colors.PRIMARY_BLUE,
+            size_hint_x=0.6,
+            on_release=self.show_start_time_picker
+        )
+        start_time_box.add_widget(self.start_time_btn)
+        content.add_widget(start_time_box)
+
+        # End Time (Optional)
+        end_time_box = MDBoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(56),
+            spacing=dp(8)
+        )
+
+        end_time_label = MDLabel(
+            text="End Time",
+            size_hint_x=0.4,
+            font_style="Body2",
+            theme_text_color="Hint"
+        )
+        end_time_box.add_widget(end_time_label)
+
+        self.end_time_btn = MDFlatButton(
+            text="Optional 🕐",
+            size_hint_x=0.6,
+            on_release=self.show_end_time_picker
+        )
+        end_time_box.add_widget(self.end_time_btn)
+        content.add_widget(end_time_box)
+
+        # Reminder (Optional)
+        reminder_box = MDBoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(56),
+            spacing=dp(8)
+        )
+
+        reminder_label = MDLabel(
+            text="Reminder 🔔",
+            size_hint_x=0.4,
+            font_style="Body2",
+            theme_text_color="Hint"
+        )
+        reminder_box.add_widget(reminder_label)
+
+        self.reminder_btn = MDFlatButton(
+            text="Optional ⏰",
+            size_hint_x=0.6,
+            on_release=self.show_reminder_picker
+        )
+        reminder_box.add_widget(self.reminder_btn)
+        content.add_widget(reminder_box)
+
+        # Motivation (Optional)
+        content.add_widget(MDLabel(
+            text="💪 Motivation (optional)",
+            font_style="Subtitle2",
+            size_hint_y=None,
+            height=dp(20),
+            theme_text_color="Hint"
+        ))
+
+        self.motivation_field = MDTextField(
+            hint_text='"You got this!" or "Stay focused!"',
+            mode="rectangle",
+            size_hint_y=None,
+            height=dp(56)
+        )
+        content.add_widget(self.motivation_field)
+
+        scroll.add_widget(content)
+
+        # Dialog buttons
+        buttons = [
+            MDFlatButton(
+                text="CANCEL",
+                on_release=lambda x: self.dismiss()
+            ),
+            MDRaisedButton(
+                text="CREATE TASK",
+                md_bg_color=Colors.SUCCESS_GREEN,
+                on_release=self.on_create_task
+            ),
+        ]
+
+        self.dialog = self.create_dialog(scroll, buttons)
+        self.dialog.open()
+
+    def on_name_change(self, instance, value):
+        """Update task name in data"""
+        self.task_data['name'] = value.strip()
+
+    def show_start_time_picker(self, *args):
+        """Show time picker for start time"""
+        time_dialog = MDTimePicker()
+        time_dialog.bind(on_save=self.on_start_time_save)
+        time_dialog.open()
+
+    def on_start_time_save(self, instance, time):
+        """Save start time"""
+        time_str = time.strftime(TIME_FORMAT)
+        self.task_data['start_time'] = time_str
+        self.start_time_btn.text = f"{time_str} 🕐"
+        self.start_time_btn.md_bg_color = Colors.SUCCESS_GREEN
+
+    def show_end_time_picker(self, *args):
+        """Show time picker for end time"""
+        time_dialog = MDTimePicker()
+        time_dialog.bind(on_save=self.on_end_time_save)
+        time_dialog.open()
+
+    def on_end_time_save(self, instance, time):
+        """Save end time"""
+        time_str = time.strftime(TIME_FORMAT)
+        self.task_data['end_time'] = time_str
+        self.end_time_btn.text = f"{time_str} 🕐"
+
+    def show_reminder_picker(self, *args):
+        """Show time picker for reminder"""
+        time_dialog = MDTimePicker()
+        time_dialog.bind(on_save=self.on_reminder_save)
+        time_dialog.open()
+
+    def on_reminder_save(self, instance, time):
+        """Save reminder time"""
+        time_str = time.strftime(TIME_FORMAT)
+        self.task_data['reminder'] = time_str
+        self.reminder_btn.text = f"{time_str} 🔔"
+
+    def validate(self):
+        """Validate required fields"""
+        # Check task name
+        if not self.task_data['name']:
+            return False, "Task name is required"
+
+        if len(self.task_data['name']) > 500:
+            return False, "Task name too long (max 500 characters)"
+
+        # Check start time
+        if not self.task_data['start_time']:
+            return False, "Start time is required"
+
+        # Check end time logic
+        if self.task_data['end_time']:
+            try:
+                start = datetime.strptime(self.task_data['start_time'], TIME_FORMAT)
+                end = datetime.strptime(self.task_data['end_time'], TIME_FORMAT)
+                if end <= start:
+                    return False, "End time must be after start time"
+            except:
+                return False, "Invalid time format"
+
+        # Check motivation length
+        motivation = self.motivation_field.text.strip()
+        if motivation and len(motivation) > 500:
+            return False, "Motivation too long (max 500 characters)"
+
+        return True, ""
+
+    def on_create_task(self, *args):
+        """Create the task"""
+        # Get all field values
+        self.task_data['description'] = self.description_field.text.strip()
+        self.task_data['motivation'] = self.motivation_field.text.strip()
+
+        # Validate
+        valid, error = self.validate()
+        if not valid:
+            toast(error)
+            return
+
+        try:
+            # Call callback with task data
+            self.callback(self.task_data)
+            self.dismiss()
+
+        except ValueError as e:
+            toast(f"Error: {e}")
+        except Exception as e:
+            toast(f"Failed to create task: {e}")
+            print(f"Task creation error: {e}")
+
+
 class AddTaskDialog(BaseDialog):
+    """Simple dialog for quick task/subtask creation"""
+
     def __init__(self, callback, title="New Task", hint="Task title"):
         super().__init__(title, callback)
         self.hint_text = hint
@@ -70,13 +355,22 @@ class AddTaskDialog(BaseDialog):
 
     def on_add(self, *args):
         title = self.title_field.text.strip()
-        if title:
-            try:
-                self.callback(title)
-            except ValueError as e:
-                print(f"Validation error: {e}")
-                # Could show error dialog here
-        self.dismiss()
+
+        if not title:
+            toast("Title cannot be empty")
+            return
+
+        if len(title) > 500:
+            toast("Title too long (max 500 characters)")
+            return
+
+        try:
+            self.callback(title)
+            self.dismiss()
+        except ValueError as e:
+            toast(f"Error: {e}")
+        except Exception as e:
+            toast(f"Failed to add: {e}")
 
 
 class EditListDialog(BaseDialog):
@@ -118,12 +412,20 @@ class EditListDialog(BaseDialog):
 
     def on_save(self, *args):
         name = self.name_field.text.strip()
-        if name:
-            try:
-                self.callback(name)
-            except ValueError as e:
-                print(f"Validation error: {e}")
-        self.dismiss()
+
+        if not name:
+            toast("List name cannot be empty")
+            return
+
+        if len(name) > 200:
+            toast("List name too long (max 200 characters)")
+            return
+
+        try:
+            self.callback(name)
+            self.dismiss()
+        except ValueError as e:
+            toast(f"Error: {e}")
 
 
 class TimePickerDialog:
@@ -158,7 +460,6 @@ class RecurrenceDialog(BaseDialog):
         )
 
         # Recurrence type buttons
-        from kivymd.uix.label import MDLabel
         content.add_widget(MDLabel(
             text="Repeat:",
             font_style="Subtitle1",
@@ -251,8 +552,6 @@ class ConfirmDialog(BaseDialog):
         self.cancel_text = cancel_text
 
     def show(self):
-        from kivymd.uix.label import MDLabel
-
         content = MDBoxLayout(
             orientation='vertical',
             spacing=dp(20),

@@ -59,11 +59,22 @@ class DatabaseManager:
                     recurrence_type TEXT,
                     recurrence_interval INTEGER DEFAULT 1,
                     last_completed_date DATE,
+                    motivation TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (list_id) REFERENCES task_lists (id) ON DELETE CASCADE,
                     FOREIGN KEY (parent_id) REFERENCES tasks (id) ON DELETE CASCADE
                 )
             ''')
+
+            # Migration: Add motivation column if it doesn't exist
+            cursor.execute("PRAGMA table_info(tasks)")
+            task_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'motivation' not in task_columns:
+                print("🔄 Migrating database: Adding motivation column...")
+                cursor.execute('ALTER TABLE tasks ADD COLUMN motivation TEXT')
+                conn.commit()
+                print("✅ Motivation column added!")
 
             conn.commit()
 
@@ -276,7 +287,7 @@ class DatabaseManager:
             query = '''
                 SELECT id, list_id, title, notes, due_date, start_time, end_time, 
                        reminder_time, completed, parent_id, position, recurrence_type,
-                       recurrence_interval, last_completed_date, created_at
+                       recurrence_interval, last_completed_date, motivation, created_at
                 FROM tasks
                 WHERE list_id = ? AND parent_id IS NULL
             '''
@@ -297,7 +308,7 @@ class DatabaseManager:
                         due_date=row[4], start_time=row[5], end_time=row[6],
                         reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
                         position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
-                        last_completed_date=row[13], created_at=row[14]
+                        last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
                     )
                     task.subtasks = self.get_subtasks(task.id)
                     tasks.append(task)
@@ -317,7 +328,7 @@ class DatabaseManager:
             cursor.execute('''
                 SELECT id, list_id, title, notes, due_date, start_time, end_time,
                        reminder_time, completed, parent_id, position, recurrence_type,
-                       recurrence_interval, last_completed_date, created_at
+                       recurrence_interval, last_completed_date, motivation, created_at
                 FROM tasks
                 WHERE parent_id = ?
                 ORDER BY position ASC, created_at DESC
@@ -332,7 +343,7 @@ class DatabaseManager:
                         due_date=row[4], start_time=row[5], end_time=row[6],
                         reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
                         position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
-                        last_completed_date=row[13], created_at=row[14]
+                        last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
                     )
                     subtasks.append(task)
                 except ValueError as e:
@@ -351,7 +362,7 @@ class DatabaseManager:
             cursor.execute('''
                 SELECT id, list_id, title, notes, due_date, start_time, end_time,
                        reminder_time, completed, parent_id, position, recurrence_type,
-                       recurrence_interval, last_completed_date, created_at
+                       recurrence_interval, last_completed_date, motivation, created_at
                 FROM tasks WHERE id = ?
             ''', (task_id,))
             row = cursor.fetchone()
@@ -363,7 +374,7 @@ class DatabaseManager:
                         due_date=row[4], start_time=row[5], end_time=row[6],
                         reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
                         position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
-                        last_completed_date=row[13], created_at=row[14]
+                        last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
                     )
                     task.subtasks = self.get_subtasks(task.id)
                     return task
@@ -376,12 +387,18 @@ class DatabaseManager:
 
     def create_task(self, list_id, title, notes="", due_date=None, start_time=None,
                     end_time=None, reminder_time=None, parent_id=None,
-                    recurrence_type=None, recurrence_interval=1):
-        """Create a new task"""
+                    recurrence_type=None, recurrence_interval=1, motivation=""):
+        """Create a new task with all fields including motivation"""
+
+        # Validate list exists
+        list_obj = self.get_list_by_id(list_id)
+        if not list_obj:
+            raise ValueError(f"List with id {list_id} does not exist")
+
         # Validate using Task model
         try:
             Task(list_id=list_id, title=title, notes=notes,
-                 start_time=start_time, end_time=end_time)
+                 start_time=start_time, end_time=end_time, motivation=motivation)
         except ValueError as e:
             raise ValueError(f"Invalid task data: {e}")
 
@@ -398,20 +415,24 @@ class DatabaseManager:
 
             cursor.execute('''
                 INSERT INTO tasks (list_id, title, notes, due_date, start_time, end_time,
-                                 reminder_time, parent_id, position, recurrence_type, recurrence_interval)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 reminder_time, parent_id, position, recurrence_type, 
+                                 recurrence_interval, motivation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (list_id, title.strip(), notes, due_date, start_time, end_time,
-                  reminder_time, parent_id, position, recurrence_type, recurrence_interval))
+                  reminder_time, parent_id, position, recurrence_type, recurrence_interval, motivation))
 
             task_id = cursor.lastrowid
             conn.commit()
+
+            print(f"✅ Task created successfully: ID={task_id}, Title='{title}'")
             return task_id
+
         except sqlite3.IntegrityError as e:
-            print(f"Database constraint violation: {e}")
+            print(f"❌ Database constraint violation: {e}")
             conn.rollback()
-            return None
+            raise ValueError(f"Database error: {e}")
         except Exception as e:
-            print(f"Error creating task: {e}")
+            print(f"❌ Error creating task: {e}")
             conn.rollback()
             raise
         finally:
@@ -427,7 +448,7 @@ class DatabaseManager:
 
             allowed_fields = ['title', 'notes', 'due_date', 'start_time', 'end_time',
                               'reminder_time', 'completed', 'recurrence_type',
-                              'recurrence_interval', 'last_completed_date']
+                              'recurrence_interval', 'last_completed_date', 'motivation']
 
             for field in allowed_fields:
                 if field in kwargs:
@@ -508,7 +529,7 @@ class DatabaseManager:
             cursor.execute('''
                 SELECT id, list_id, title, notes, due_date, start_time, end_time,
                        reminder_time, completed, parent_id, position, recurrence_type,
-                       recurrence_interval, last_completed_date, created_at
+                       recurrence_interval, last_completed_date, motivation, created_at
                 FROM tasks
                 WHERE title LIKE ? OR notes LIKE ?
                 ORDER BY completed ASC, created_at DESC
@@ -524,7 +545,7 @@ class DatabaseManager:
                         due_date=row[4], start_time=row[5], end_time=row[6],
                         reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
                         position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
-                        last_completed_date=row[13], created_at=row[14]
+                        last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
                     )
                     tasks.append(task)
                 except ValueError:

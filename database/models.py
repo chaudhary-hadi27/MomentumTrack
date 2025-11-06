@@ -55,7 +55,7 @@ class Task:
                  due_date=None, start_time=None, end_time=None,
                  reminder_time=None, completed=False, parent_id=None,
                  position=0, recurrence_type=None, recurrence_interval=1,
-                 last_completed_date=None, created_at=None):
+                 last_completed_date=None, motivation="", created_at=None):
         self.id = id
         self.list_id = list_id
         self.title = self._validate_title(title)
@@ -70,6 +70,7 @@ class Task:
         self.recurrence_type = recurrence_type
         self.recurrence_interval = recurrence_interval
         self.last_completed_date = last_completed_date
+        self.motivation = self._validate_motivation(motivation)
         self.created_at = created_at or datetime.now()
         self.subtasks = []
 
@@ -89,6 +90,12 @@ class Task:
         if notes and len(notes) > 5000:
             raise ValueError("Task notes too long (max 5000 characters)")
         return notes or ""
+
+    def _validate_motivation(self, motivation):
+        """Validate motivation message"""
+        if motivation and len(motivation) > 500:
+            raise ValueError("Motivation message too long (max 500 characters)")
+        return motivation or ""
 
     def _validate_time_range(self):
         """Validate that end time is after start time"""
@@ -126,5 +133,6 @@ class Task:
             'recurrence_type': self.recurrence_type,
             'recurrence_interval': self.recurrence_interval,
             'last_completed_date': self.last_completed_date,
+            'motivation': self.motivation,
             'created_at': self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at
         }

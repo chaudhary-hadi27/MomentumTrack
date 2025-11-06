@@ -16,6 +16,7 @@ class TaskItem(MDBoxLayout):
     task_start_time = StringProperty("")
     task_end_time = StringProperty("")
     task_recurrence = StringProperty("")
+    task_motivation = StringProperty("")
     task_completed = BooleanProperty(False)
     is_subtask = BooleanProperty(False)
     on_task_click = ObjectProperty(None)
@@ -26,7 +27,15 @@ class TaskItem(MDBoxLayout):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
-        self.height = dp(90 if self.task_start_time or self.task_recurrence else 70)
+
+        # Calculate height based on content
+        base_height = 70
+        if self.task_start_time or self.task_recurrence:
+            base_height += 20
+        if self.task_motivation:
+            base_height += 20
+
+        self.height = dp(base_height)
         self.padding = [dp(12) if not self.is_subtask else dp(40), dp(8), dp(8), dp(8)]
         self.spacing = dp(12)
 
@@ -75,6 +84,8 @@ class TaskItem(MDBoxLayout):
             self.time_label.color = secondary_color
         if hasattr(self, 'recurrence_label'):
             self.recurrence_label.color = secondary_color
+        if hasattr(self, 'motivation_label'):
+            self.motivation_label.color = (0.1, 0.6, 0.3, 1)  # Green for motivation
 
     def _update_rect(self, *args):
         """Update background rectangle"""
@@ -154,6 +165,18 @@ class TaskItem(MDBoxLayout):
                 self.recurrence_label.color = Colors.HINT_TEXT_DARK if is_dark else Colors.HINT_TEXT_LIGHT
 
             content_layout.add_widget(self.recurrence_label)
+
+        # Motivation info
+        if self.task_motivation:
+            self.motivation_label = MDLabel(
+                text=f"💪 {self.task_motivation}",
+                font_style="Caption",
+                size_hint_y=None,
+                height=dp(18),
+                color=(0.1, 0.6, 0.3, 1),  # Green color
+                italic=True
+            )
+            content_layout.add_widget(self.motivation_label)
 
         self.add_widget(content_layout)
 

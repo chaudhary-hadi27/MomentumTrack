@@ -143,6 +143,27 @@ class TaskDetailScreen(MDScreen):
         notes_card.add_widget(self.notes_field)
         content.add_widget(notes_card)
 
+        # Motivation quote field in card
+        motivation_card = MDCard(
+            orientation='vertical',
+            padding=dp(12),
+            size_hint_y=None,
+            height=dp(130),
+            elevation=2,
+            radius=[dp(12)]
+        )
+
+        self.motivation_quote_field = MDTextField(
+            hint_text="Motivational quote for reminder (Optional)",
+            mode="fill",
+            multiline=True,
+            size_hint_y=None,
+            height=dp(100)
+        )
+        self.motivation_quote_field.bind(text=self.on_motivation_change)
+        motivation_card.add_widget(self.motivation_quote_field)
+        content.add_widget(motivation_card)
+
         # Action buttons section
         buttons_card = MDCard(
             orientation='vertical',
@@ -282,6 +303,15 @@ class TaskDetailScreen(MDScreen):
                 label = recurrence_labels.get(self.task.recurrence_type, "Custom")
                 self.recurrence_btn.text = f"🔄 Repeats: {label}"
 
+            # Show motivation if exists
+            if self.task.motivation:
+                # You can display it in notes or add a separate field
+                # For now, we'll append it to notes display
+                if self.task.notes:
+                    self.notes_field.text = f"{self.task.notes}\n\n💪 Motivation: {self.task.motivation}"
+                else:
+                    self.notes_field.text = f"💪 {self.task.motivation}"
+
             self.load_subtasks()
 
         except Exception as e:
@@ -318,6 +348,14 @@ class TaskDetailScreen(MDScreen):
                 self.db.update_task(self.task_id, notes=value)
             except ValueError as e:
                 toast(f"Invalid notes: {e}")
+
+    def on_motivation_change(self, instance, value):
+        """Handle motivation quote field changes"""
+        if self.task:
+            try:
+                self.db.update_task(self.task_id, motivation_quote=value)
+            except ValueError as e:
+                toast(f"Invalid motivation quote: {e}")
 
     def show_date_picker(self, *args):
         date_dialog = MDDatePicker()
@@ -410,12 +448,18 @@ class TaskDetailScreen(MDScreen):
         dialog = AddTaskDialog(self.add_subtask, title="New Subtask", hint="Subtask title")
         dialog.show()
 
-    def add_subtask(self, title):
+    def add_subtask(self, task_data):
+        """Add a new subtask"""
         if self.task:
             try:
                 self.db.create_task(
                     list_id=self.task.list_id,
-                    title=title,
+                    title=task_data['title'],
+                    notes=task_data.get('notes', ''),
+                    start_time=task_data.get('start_time'),
+                    end_time=task_data.get('end_time'),
+                    reminder_time=task_data.get('reminder_time'),
+                    motivation_quote=task_data.get('motivation_quote'),
                     parent_id=self.task_id
                 )
                 self.load_task_data()
