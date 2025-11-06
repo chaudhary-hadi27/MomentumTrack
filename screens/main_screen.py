@@ -184,6 +184,7 @@ class MainScreen(MDScreen):
         self.current_list_index = 0
         self.category_lists = {}
         self.list_widgets = {}
+        self.refresh_handlers = {}
         self.open_settings = None
         self.toolbar = None
         self.list_tabs = None
