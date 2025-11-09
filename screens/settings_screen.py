@@ -15,6 +15,7 @@ class SettingsScreen(MDScreen):
         self.on_back_callback = on_back_callback
         self.toolbar = None
         self._theme_bound = False
+        self._theme_update_scheduled = False
         self.build_ui()
 
         # Listen for theme changes
@@ -24,12 +25,13 @@ class SettingsScreen(MDScreen):
             self._theme_bound = True
 
     def on_pre_leave(self):
-        """Unbind theme when leaving screen"""
+        """Unbind theme when leaving screen - CRITICAL for preventing leaks"""
         if self._theme_bound:
             app = MDApp.get_running_app()
             if app:
                 app.theme_cls.unbind(theme_style=self.on_theme_change)
                 self._theme_bound = False
+            print("🔓 SettingsScreen: Theme unbound")
 
     def on_pre_enter(self):
         """Re-bind theme when entering screen"""
@@ -38,6 +40,7 @@ class SettingsScreen(MDScreen):
             if app:
                 app.theme_cls.bind(theme_style=self.on_theme_change)
                 self._theme_bound = True
+            print("🔒 SettingsScreen: Theme bound")
 
     def update_toolbar_colors(self):
         """Update toolbar icon colors based on theme"""
@@ -51,7 +54,17 @@ class SettingsScreen(MDScreen):
             self.toolbar.specific_text_color = Colors.DARK_TEXT
 
     def on_theme_change(self, instance, value):
-        """Called when theme changes"""
+        """Called when theme changes - BATCHED"""
+        if self._theme_update_scheduled:
+            return
+
+        self._theme_update_scheduled = True
+        Clock.schedule_once(self._apply_theme_update, 0)
+
+    def _apply_theme_update(self, dt):
+        """Apply theme update in batch"""
+        self._theme_update_scheduled = False
+
         if self.toolbar:
             self.toolbar.md_bg_color = self.get_toolbar_color()
             self.update_toolbar_colors()

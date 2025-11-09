@@ -13,13 +13,11 @@ from kivymd.app import MDApp
 from kivymd.toast import toast
 from components.task_item import TaskItem
 from components.list_swiper import ListSwiper
-from components.dialogs import CreateTaskDialog, EditListDialog, ConfirmDialog
+from components.dialogs import CreateTaskDialog, EditListDialog, ConfirmDialog, AddTaskDialog
 from database.db_manager import DatabaseManager
 from database.models import TaskCategory
 from utils.constants import Colors, MAX_TASKS_PER_LIST
-from components.quick_actions import QuickActionsBar
-from components.task_item_enhanced import TaskItemEnhanced
-from utils.gesture_handler import PullToRefreshHandler
+
 
 class ListTabs(MDBoxLayout):
     """Clean horizontal tabs like Google Tasks"""
@@ -184,12 +182,12 @@ class MainScreen(MDScreen):
         self.current_list_index = 0
         self.category_lists = {}
         self.list_widgets = {}
-        self.refresh_handlers = {}
         self.open_settings = None
         self.toolbar = None
         self.list_tabs = None
         self.loading_spinner = None
         self._theme_bound = False
+        self._theme_update_scheduled = False
 
         self.build_ui()
         self.load_initial_data()
@@ -201,12 +199,13 @@ class MainScreen(MDScreen):
             self._theme_bound = True
 
     def on_pre_leave(self):
-        """Unbind theme when leaving screen"""
+        """Unbind theme when leaving screen - CRITICAL for preventing leaks"""
         if self._theme_bound:
             app = MDApp.get_running_app()
             if app:
                 app.theme_cls.unbind(theme_style=self.on_theme_change)
                 self._theme_bound = False
+            print("🔓 MainScreen: Theme unbound")
 
     def on_pre_enter(self):
         """Re-bind theme when entering screen"""
@@ -215,8 +214,10 @@ class MainScreen(MDScreen):
             if app:
                 app.theme_cls.bind(theme_style=self.on_theme_change)
                 self._theme_bound = True
+            print("🔒 MainScreen: Theme bound")
 
     def update_toolbar_colors(self):
+        """Update toolbar colors based on theme"""
         if not self.toolbar:
             return
         app = MDApp.get_running_app()
@@ -226,7 +227,18 @@ class MainScreen(MDScreen):
             self.toolbar.specific_text_color = Colors.DARK_TEXT
 
     def on_theme_change(self, instance, value):
-        """Handle theme changes efficiently"""
+        """Handle theme changes - BATCHED to prevent multiple updates"""
+        if self._theme_update_scheduled:
+            return  # Already scheduled, skip
+
+        self._theme_update_scheduled = True
+        Clock.schedule_once(self._apply_theme_update, 0)
+
+    def _apply_theme_update(self, dt):
+        """Apply theme update in batch"""
+        self._theme_update_scheduled = False
+
+        # Update toolbar
         if self.toolbar:
             self.toolbar.md_bg_color = self.get_toolbar_color()
             self.update_toolbar_colors()
@@ -241,13 +253,15 @@ class MainScreen(MDScreen):
         if self.list_tabs and self.current_list_id:
             self.list_tabs.highlight_tab(self.current_list_id)
 
-        # Update all visible task items
-        for list_id, task_list_widget in self.list_widgets.items():
+        # Update all visible task items (only current list)
+        if self.current_list_id in self.list_widgets:
+            task_list_widget = self.list_widgets[self.current_list_id]
             for child in task_list_widget.children:
                 if isinstance(child, TaskItem):
                     child.update_theme_colors()
 
     def get_toolbar_color(self):
+        """Get toolbar color based on theme"""
         app = MDApp.get_running_app()
         if app and app.theme_cls.theme_style == "Dark":
             return Colors.DARK_BG
@@ -280,18 +294,6 @@ class MainScreen(MDScreen):
             on_add_list=self.show_add_list_dialog
         )
         content_box.add_widget(self.list_tabs)
-
-        # Add quick actions bar
-        self.quick_actions = QuickActionsBar(
-            callbacks={
-                'add_task': self.show_add_task_dialog,
-                'search': self.show_search,
-                'sort': self.show_sort_options,
-                'filter': self.show_filter_options
-            },
-            pos_hint={'center_x': 0.5, 'y': 0.02}
-        )
-        content_box.add_widget(self.quick_actions)
 
         # List Swiper
         self.list_swiper = ListSwiper(on_list_change=self.on_swipe_list_change)
@@ -372,19 +374,29 @@ class MainScreen(MDScreen):
             self.open_settings()
 
     def load_initial_data(self):
-        categories_data = self.db.get_all_categories_with_lists()
-        self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
+        """Load initial category data"""
+        try:
+            categories_data = self.db.get_all_categories_with_lists()
+            self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
 
-        if self.category_lists[TaskCategory.DAILY]:
-            self.current_category = TaskCategory.DAILY
-            self.build_list_swiper()
+            if self.category_lists[TaskCategory.DAILY]:
+                self.current_category = TaskCategory.DAILY
+                self.build_list_swiper()
 
-        self.load_drawer_categories()
+            self.load_drawer_categories()
+        except Exception as e:
+            print(f"❌ Error loading initial data: {e}")
+            toast("Error loading data")
 
     def build_list_swiper(self):
         """Build swiper for current category"""
         # Clear existing slides safely
         self.list_swiper.clear_slides()
+
+        # Clear old widgets properly
+        for list_id, widget in self.list_widgets.items():
+            widget.clear_widgets()
+
         self.list_widgets.clear()
 
         lists = self.category_lists.get(self.current_category, [])
@@ -409,31 +421,14 @@ class MainScreen(MDScreen):
             self.update_toolbar_title()
             self.load_tasks_for_list(self.current_list_id)
 
-            # Add pull-to-refresh
-            refresh_handler = PullToRefreshHandler(
-                scroll,
-                on_refresh=lambda: self.refresh_list(task_list.id)
-            )
-            self.refresh_handlers[task_list.id] = refresh_handler
-
-    def refresh_list(self, list_id):
-        """Refresh specific list"""
-        self.load_tasks_for_list(list_id)
-        # Call finish_refresh after loading
-        if list_id in self.refresh_handlers:
-            self.refresh_handlers[list_id].finish_refresh()
-
-
-
-
     def update_toolbar_title(self):
-        """Update toolbar with category name - WITHOUT EMOJI"""
+        """Update toolbar with category name"""
         cat_info = next((c for c in TaskCategory.get_all() if c['id'] == self.current_category), None)
         if cat_info:
             self.toolbar.title = cat_info['name']
 
     def load_drawer_categories(self):
-        """Load only categories in drawer - WITHOUT EMOJIS"""
+        """Load only categories in drawer"""
         self.drawer_list.clear_widgets()
 
         for cat in TaskCategory.get_all():
@@ -480,27 +475,10 @@ class MainScreen(MDScreen):
             self.list_tabs.select_list(task_list.id)
             self.load_tasks_for_list(task_list.id)
 
-    def show_loading(self):
-        """Show loading spinner"""
-        if not self.loading_spinner:
-            self.loading_spinner = MDSpinner(
-                size_hint=(None, None),
-                size=(dp(46), dp(46)),
-                pos_hint={'center_x': .5, 'center_y': .5}
-            )
-
-        if self.loading_spinner not in self.children:
-            self.add_widget(self.loading_spinner)
-
-    def hide_loading(self):
-        """Hide loading spinner"""
-        if self.loading_spinner and self.loading_spinner in self.children:
-            self.remove_widget(self.loading_spinner)
-
     def load_tasks_for_list(self, list_id):
-        """Load tasks for a specific list with limit warning"""
+        """Load tasks for a specific list with error handling"""
         if list_id not in self.list_widgets:
-            print(f"Warning: List widget not found for list_id {list_id}")
+            print(f"⚠️ Warning: List widget not found for list_id {list_id}")
             return
 
         task_list_widget = self.list_widgets[list_id]
@@ -516,8 +494,7 @@ class MainScreen(MDScreen):
             tasks = tasks[:MAX_TASKS_PER_LIST]
 
             for task in tasks:
-                # Use enhanced task item instead of basic one
-                task_item = TaskItemEnhanced(
+                task_item = TaskItem(
                     task_id=task.id,
                     task_title=task.title,
                     task_notes=task.notes,
@@ -528,9 +505,7 @@ class MainScreen(MDScreen):
                     task_completed=task.completed,
                     on_task_click=self.open_task_details,
                     on_toggle_complete=self.toggle_task_completed,
-                    on_delete=self.delete_task,
-                    on_edit=self.edit_task,
-                    on_duplicate=self.duplicate_task
+                    on_delete=self.delete_task
                 )
                 task_list_widget.add_widget(task_item)
 
@@ -545,12 +520,11 @@ class MainScreen(MDScreen):
                         on_toggle_complete=self.toggle_task_completed,
                         on_delete=self.delete_task
                     )
-                    # Apply theme to subtasks too
                     subtask_item.update_theme_colors()
                     task_list_widget.add_widget(subtask_item)
 
         except Exception as e:
-            print(f"Error loading tasks: {e}")
+            print(f"❌ Error loading tasks: {e}")
             toast("Error loading tasks")
 
     def load_tasks(self):
@@ -586,7 +560,6 @@ class MainScreen(MDScreen):
             )
 
             if task_id:
-                # Reload tasks for current list
                 self.load_tasks_for_list(self.current_list_id)
                 toast("✅ Task created successfully!")
             else:
@@ -595,18 +568,20 @@ class MainScreen(MDScreen):
         except ValueError as e:
             toast(f"Invalid task: {e}")
         except Exception as e:
-            print(f"Error adding task: {e}")
+            print(f"❌ Error adding task: {e}")
             toast("Failed to add task")
 
     def toggle_task_completed(self, task_id, completed):
+        """Toggle task completion"""
         try:
             self.db.toggle_task_completed(task_id)
             self.load_tasks()
         except Exception as e:
-            print(f"Error toggling task: {e}")
+            print(f"❌ Error toggling task: {e}")
             toast("Error updating task")
 
     def delete_task(self, task_id):
+        """Delete task with confirmation"""
         dialog = ConfirmDialog(
             title="Delete Task",
             message="Are you sure you want to delete this task?",
@@ -616,12 +591,13 @@ class MainScreen(MDScreen):
         dialog.show()
 
     def confirm_delete_task(self, task_id):
+        """Confirm and delete task"""
         try:
             self.db.delete_task(task_id)
             self.load_tasks()
             toast("Task deleted")
         except Exception as e:
-            print(f"Error deleting task: {e}")
+            print(f"❌ Error deleting task: {e}")
             toast("Error deleting task")
 
     def open_task_details(self, task_id):
@@ -629,19 +605,14 @@ class MainScreen(MDScreen):
         pass
 
     def toggle_nav_drawer(self):
+        """Toggle navigation drawer"""
         if self.nav_drawer.state == "open":
             self.nav_drawer.set_state("close")
         else:
             self.nav_drawer.set_state("open")
 
-    def on_back_button(self):
-        """Handle back button press"""
-        if self.nav_drawer.state == "open":
-            self.nav_drawer.set_state("close")
-            return True
-        return False
-
     def show_list_options(self):
+        """Show list options menu"""
         from kivymd.uix.menu import MDDropdownMenu
 
         menu_items = [
@@ -659,6 +630,7 @@ class MainScreen(MDScreen):
         self.menu.open()
 
     def menu_action(self, action):
+        """Handle menu actions"""
         self.menu.dismiss()
         if action == "rename":
             dialog = EditListDialog(self.current_list_name, self.rename_list)
@@ -667,6 +639,7 @@ class MainScreen(MDScreen):
             self.delete_current_list()
 
     def rename_list(self, new_name):
+        """Rename current list"""
         if self.current_list_id:
             try:
                 self.db.update_list(self.current_list_id, new_name)
@@ -677,6 +650,7 @@ class MainScreen(MDScreen):
                 toast(f"Error: {e}")
 
     def delete_current_list(self):
+        """Delete current list with confirmation"""
         lists = self.category_lists.get(self.current_category, [])
         if self.current_list_id and len(lists) > 1:
             dialog = ConfirmDialog(
@@ -690,19 +664,22 @@ class MainScreen(MDScreen):
             toast("Cannot delete the last list")
 
     def confirm_delete_list(self):
+        """Confirm and delete list"""
         try:
             self.db.delete_list(self.current_list_id)
             self.reload_category_data()
             toast("List deleted")
         except Exception as e:
-            print(f"Error deleting list: {e}")
+            print(f"❌ Error deleting list: {e}")
             toast("Error deleting list")
 
     def show_add_list_dialog(self, *args):
+        """Show dialog to add new list"""
         dialog = AddTaskDialog(self.add_list, title="New List", hint="List name")
         dialog.show()
 
     def add_list(self, name):
+        """Add new list"""
         try:
             self.db.create_list(name, self.current_category)
             self.reload_category_data()
@@ -719,25 +696,3 @@ class MainScreen(MDScreen):
             self.build_list_swiper()
 
         self.load_drawer_categories()
-
-    def reload_all_data(self):
-        """Full reload - use sparingly"""
-        categories_data = self.db.get_all_categories_with_lists()
-        self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
-        self.build_list_swiper()
-        self.load_drawer_categories()
-
-    def show_search(self):
-        """Show search dialog"""
-        # Implement search functionality
-        pass
-
-    def show_sort_options(self):
-        """Show sort menu"""
-        # Implement sort menu
-        pass
-
-    def show_filter_options(self):
-        """Show filter options"""
-        # Implement filter dialog
-        pass
