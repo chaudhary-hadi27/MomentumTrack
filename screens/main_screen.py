@@ -493,7 +493,10 @@ class MainScreen(MDScreen):
 
             tasks = tasks[:MAX_TASKS_PER_LIST]
 
+            print(f"📝 Loading {len(tasks)} tasks for list {list_id}")
+
             for task in tasks:
+                # Create task item with ALL callbacks properly bound
                 task_item = TaskItem(
                     task_id=task.id,
                     task_title=task.title,
@@ -505,8 +508,9 @@ class MainScreen(MDScreen):
                     task_completed=task.completed,
                     on_task_click=self.open_task_details,
                     on_toggle_complete=self.toggle_task_completed,
-                    on_delete=self.delete_task
+                    on_delete=self.delete_task  # Callback passed here
                 )
+
                 task_list_widget.add_widget(task_item)
 
                 # Add subtasks
@@ -518,13 +522,18 @@ class MainScreen(MDScreen):
                         is_subtask=True,
                         on_task_click=self.open_task_details,
                         on_toggle_complete=self.toggle_task_completed,
-                        on_delete=self.delete_task
+                        on_delete=self.delete_task  # Callback passed here
                     )
+
                     subtask_item.update_theme_colors()
                     task_list_widget.add_widget(subtask_item)
 
+            print(f"✅ Successfully loaded {len(tasks)} tasks")
+
         except Exception as e:
             print(f"❌ Error loading tasks: {e}")
+            import traceback
+            traceback.print_exc()
             toast("Error loading tasks")
 
     def load_tasks(self):
@@ -582,6 +591,9 @@ class MainScreen(MDScreen):
 
     def delete_task(self, task_id):
         """Delete task with confirmation"""
+        print(f"🗑️ MainScreen.delete_task called for task_id: {task_id}")
+
+        # Show confirmation dialog
         dialog = ConfirmDialog(
             title="Delete Task",
             message="Are you sure you want to delete this task?",
@@ -592,12 +604,19 @@ class MainScreen(MDScreen):
 
     def confirm_delete_task(self, task_id):
         """Confirm and delete task"""
+        print(f"🗑️ Confirming delete for task_id: {task_id}")
         try:
             self.db.delete_task(task_id)
+            print(f"✅ Task {task_id} deleted from database")
+
+            # Reload the current list
             self.load_tasks()
-            toast("Task deleted")
+            toast("Task deleted successfully")
+
         except Exception as e:
             print(f"❌ Error deleting task: {e}")
+            import traceback
+            traceback.print_exc()
             toast("Error deleting task")
 
     def open_task_details(self, task_id):

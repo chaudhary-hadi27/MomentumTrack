@@ -11,10 +11,11 @@ from kivy.clock import Clock
 from kivymd.app import MDApp
 from kivymd.toast import toast
 from components.dialogs import AddTaskDialog, TimePickerDialog, RecurrenceDialog
-from kivymd.uix.pickers import MDDatePicker
+from kivymd.uix.pickers import MDDatePicker, MDTimePicker
 from database.db_manager import DatabaseManager
 from utils.helpers import format_date
-from utils.constants import Colors
+from utils.constants import Colors, TIME_FORMAT
+from datetime import datetime, timedelta
 
 
 class TaskDetailScreen(MDScreen):
@@ -162,13 +163,22 @@ class TaskDetailScreen(MDScreen):
             orientation='vertical',
             padding=dp(12),
             size_hint_y=None,
-            height=dp(130),
+            height=dp(150),
             elevation=2,
             radius=[dp(12)]
         )
 
+        from kivymd.uix.label import MDLabel
+        motivation_card.add_widget(MDLabel(
+            text="💪 Motivation Quote",
+            font_style="Subtitle2",
+            size_hint_y=None,
+            height=dp(20),
+            bold=True
+        ))
+
         self.motivation_field = MDTextField(
-            hint_text="Motivation (Optional)",
+            hint_text='e.g., "You got this! Stay focused!"',
             mode="fill",
             multiline=True,
             size_hint_y=None,
@@ -184,7 +194,7 @@ class TaskDetailScreen(MDScreen):
             padding=dp(12),
             spacing=dp(10),
             size_hint_y=None,
-            height=dp(340),
+            height=dp(390),
             elevation=2,
             radius=[dp(12)]
         )
@@ -228,18 +238,50 @@ class TaskDetailScreen(MDScreen):
         )
         buttons_card.add_widget(self.end_time_btn)
 
-        # Reminder time button
-        self.reminder_time_btn = MDRaisedButton(
-            text="⏰ Set Reminder Time",
-            md_bg_color=Colors.PRIMARY_BLUE,
-            pos_hint={"center_x": 0.5},
-            size_hint_x=0.95,
+        # Reminder minutes before input
+        reminder_minutes_box = MDBoxLayout(
+            orientation='horizontal',
             size_hint_y=None,
-            height=dp(50),
-            on_release=self.show_reminder_time_picker,
-            elevation=4
+            height=dp(56),
+            spacing=dp(8),
+            padding=[dp(8), 0]
         )
-        buttons_card.add_widget(self.reminder_time_btn)
+
+        reminder_minutes_box.add_widget(MDLabel(
+            text="Remind before:",
+            size_hint_x=0.5,
+            font_style="Body2"
+        ))
+
+        self.reminder_minutes_field = MDTextField(
+            text="15",
+            hint_text="Minutes",
+            input_filter="int",
+            mode="rectangle",
+            size_hint_x=0.3,
+            size_hint_y=None,
+            height=dp(48)
+        )
+        self.reminder_minutes_field.bind(text=self.on_reminder_minutes_change)
+        reminder_minutes_box.add_widget(self.reminder_minutes_field)
+
+        reminder_minutes_box.add_widget(MDLabel(
+            text="min",
+            size_hint_x=0.2,
+            font_style="Caption"
+        ))
+        buttons_card.add_widget(reminder_minutes_box)
+
+        # Reminder time display
+        self.reminder_time_label = MDLabel(
+            text="Reminder: Set start time first",
+            font_style="Caption",
+            size_hint_y=None,
+            height=dp(30),
+            theme_text_color="Hint",
+            halign="center"
+        )
+        buttons_card.add_widget(self.reminder_time_label)
 
         # Recurrence button
         self.recurrence_btn = MDRaisedButton(
@@ -257,7 +299,6 @@ class TaskDetailScreen(MDScreen):
         content.add_widget(buttons_card)
 
         # Subtasks section
-        from kivymd.uix.label import MDLabel
         content.add_widget(MDLabel(
             text="Subtasks",
             font_style="H6",
@@ -300,12 +341,24 @@ class TaskDetailScreen(MDScreen):
 
             if self.task.start_time:
                 self.start_time_btn.text = f"🕐 Start: {self.task.start_time}"
+                # Update reminder display
+                self.update_reminder_display()
 
             if self.task.end_time:
                 self.end_time_btn.text = f"🕐 End: {self.task.end_time}"
 
             if self.task.reminder_time:
-                self.reminder_time_btn.text = f"⏰ Reminder: {self.task.reminder_time}"
+                # Calculate minutes before from reminder and start time
+                if self.task.start_time:
+                    try:
+                        start = datetime.strptime(self.task.start_time, TIME_FORMAT)
+                        reminder = datetime.strptime(self.task.reminder_time, TIME_FORMAT)
+                        minutes_diff = int((start - reminder).total_seconds() / 60)
+                        if minutes_diff > 0:
+                            self.reminder_minutes_field.text = str(minutes_diff)
+                    except:
+                        pass
+                self.update_reminder_display()
 
             if self.task.recurrence_type:
                 recurrence_labels = {
@@ -363,6 +416,35 @@ class TaskDetailScreen(MDScreen):
             except ValueError as e:
                 toast(f"Invalid motivation: {e}")
 
+    def on_reminder_minutes_change(self, instance, value):
+        """Update reminder when minutes before changes"""
+        self.update_reminder_display()
+
+    def update_reminder_display(self):
+        """Calculate and display reminder time"""
+        if self.task and self.task.start_time:
+            try:
+                minutes_before = int(self.reminder_minutes_field.text or "15")
+                minutes_before = max(1, min(minutes_before, 120))
+
+                start_time = datetime.strptime(self.task.start_time, TIME_FORMAT)
+                reminder_time = start_time - timedelta(minutes=minutes_before)
+                reminder_str = reminder_time.strftime(TIME_FORMAT)
+
+                # Update in database
+                self.db.update_task(self.task_id, reminder_time=reminder_str)
+
+                # Update display
+                self.reminder_time_label.text = f"⏰ Reminder: {reminder_str} ({minutes_before} min before)"
+                self.reminder_time_label.theme_text_color = "Primary"
+
+            except Exception as e:
+                print(f"Error updating reminder: {e}")
+                self.reminder_time_label.text = "Error calculating reminder"
+        else:
+            self.reminder_time_label.text = "Set start time first"
+            self.reminder_time_label.theme_text_color = "Hint"
+
     def show_date_picker(self, *args):
         date_dialog = MDDatePicker()
         date_dialog.bind(on_save=self.set_due_date)
@@ -379,43 +461,43 @@ class TaskDetailScreen(MDScreen):
             toast("Error setting due date")
 
     def show_start_time_picker(self, *args):
-        dialog = TimePickerDialog(self.set_start_time, "Select Start Time")
-        dialog.show()
+        now = datetime.now()
+        time_dialog = MDTimePicker()
+        time_dialog.set_time(now)
+        time_dialog.bind(on_save=self.set_start_time)
+        time_dialog.open()
 
-    def set_start_time(self, time_str):
+    def set_start_time(self, instance, time):
         try:
+            time_str = time.strftime(TIME_FORMAT)
             self.db.update_task(self.task_id, start_time=time_str)
+            self.task.start_time = time_str
             self.start_time_btn.text = f"🕐 Start: {time_str}"
+
+            # Update reminder automatically
+            self.update_reminder_display()
+
             toast("Start time set")
         except Exception as e:
             print(f"❌ Error setting start time: {e}")
             toast("Error setting start time")
 
     def show_end_time_picker(self, *args):
-        dialog = TimePickerDialog(self.set_end_time, "Select End Time")
-        dialog.show()
+        now = datetime.now()
+        time_dialog = MDTimePicker()
+        time_dialog.set_time(now)
+        time_dialog.bind(on_save=self.set_end_time)
+        time_dialog.open()
 
-    def set_end_time(self, time_str):
+    def set_end_time(self, instance, time):
         try:
+            time_str = time.strftime(TIME_FORMAT)
             self.db.update_task(self.task_id, end_time=time_str)
             self.end_time_btn.text = f"🕐 End: {time_str}"
             toast("End time set")
         except Exception as e:
             print(f"❌ Error setting end time: {e}")
             toast("Error setting end time")
-
-    def show_reminder_time_picker(self, *args):
-        dialog = TimePickerDialog(self.set_reminder_time, "Select Reminder Time")
-        dialog.show()
-
-    def set_reminder_time(self, time_str):
-        try:
-            self.db.update_task(self.task_id, reminder_time=time_str)
-            self.reminder_time_btn.text = f"⏰ Reminder: {time_str}"
-            toast("Reminder set")
-        except Exception as e:
-            print(f"❌ Error setting reminder: {e}")
-            toast("Error setting reminder")
 
     def show_recurrence_dialog(self, *args):
         current_type = self.task.recurrence_type if self.task else None

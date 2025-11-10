@@ -4,6 +4,7 @@ from kivymd.uix.textfield import MDTextField
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
 from kivymd.uix.pickers import MDTimePicker
+from kivymd.uix.list import OneLineListItem, OneLineIconListItem, IconLeftWidget
 from kivy.metrics import dp
 from datetime import datetime, timedelta
 from utils.constants import *
@@ -34,6 +35,112 @@ class BaseDialog:
             self.dialog.dismiss()
 
 
+class BackupDialog(BaseDialog):
+    """Dialog for backup/export options"""
+
+    def __init__(self, backup_manager, on_complete=None):
+        super().__init__("Backup & Export", None)
+        self.backup_manager = backup_manager
+        self.on_complete = on_complete
+
+    def show(self):
+        from kivymd.uix.scrollview import MDScrollView
+        from kivymd.uix.list import MDList
+
+        scroll = MDScrollView(
+            size_hint=(1, None),
+            height=dp(400)
+        )
+
+        options_list = MDList()
+
+        # Full Backup
+        item = OneLineIconListItem(
+            text="Create Full Backup (JSON)",
+            on_release=lambda x: self.create_backup()
+        )
+        icon = IconLeftWidget(icon="cloud-upload")
+        item.add_widget(icon)
+        options_list.add_widget(item)
+
+        # Export to Markdown
+        item = OneLineIconListItem(
+            text="Export All to Markdown",
+            on_release=lambda x: self.export_markdown()
+        )
+        icon = IconLeftWidget(icon="file-document")
+        item.add_widget(icon)
+        options_list.add_widget(item)
+
+        # Export to CSV
+        item = OneLineIconListItem(
+            text="Export All to CSV",
+            on_release=lambda x: self.export_csv()
+        )
+        icon = IconLeftWidget(icon="table")
+        item.add_widget(icon)
+        options_list.add_widget(item)
+
+        # View Backups
+        item = OneLineIconListItem(
+            text="View Backup History",
+            on_release=lambda x: self.view_backups()
+        )
+        icon = IconLeftWidget(icon="history")
+        item.add_widget(icon)
+        options_list.add_widget(item)
+
+        scroll.add_widget(options_list)
+
+        buttons = [
+            MDFlatButton(
+                text="CLOSE",
+                on_release=lambda x: self.dismiss()
+            )
+        ]
+
+        self.dialog = self.create_dialog(scroll, buttons)
+        self.dialog.open()
+
+    def create_backup(self):
+        filepath = self.backup_manager.create_full_backup()
+        if filepath:
+            toast(f"✅ Backup saved!")
+        else:
+            toast("❌ Backup failed")
+        self.dismiss()
+        if self.on_complete:
+            self.on_complete()
+
+    def export_markdown(self):
+        filepath = self.backup_manager.export_to_markdown()
+        if filepath:
+            toast(f"✅ Markdown exported!")
+        else:
+            toast("❌ Export failed")
+        self.dismiss()
+        if self.on_complete:
+            self.on_complete()
+
+    def export_csv(self):
+        filepath = self.backup_manager.export_to_csv()
+        if filepath:
+            toast(f"✅ CSV exported!")
+        else:
+            toast("❌ Export failed")
+        self.dismiss()
+        if self.on_complete:
+            self.on_complete()
+
+    def view_backups(self):
+        backups = self.backup_manager.get_backup_list()
+        if backups:
+            msg = f"Found {len(backups)} backups in /backups folder"
+            toast(msg)
+        else:
+            toast("No backups found")
+
+
 class CreateTaskDialog(BaseDialog):
     """Comprehensive task creation dialog with all fields"""
 
@@ -46,16 +153,16 @@ class CreateTaskDialog(BaseDialog):
             'start_time': None,
             'end_time': None,
             'reminder': None,
+            'reminder_minutes_before': 15,
             'motivation': ''
         }
 
     def show(self):
         from kivymd.uix.scrollview import MDScrollView
 
-        # Scrollable content
         scroll = MDScrollView(
             size_hint=(1, None),
-            height=dp(450)
+            height=dp(500)
         )
 
         content = MDBoxLayout(
@@ -161,7 +268,50 @@ class CreateTaskDialog(BaseDialog):
         end_time_box.add_widget(self.end_time_btn)
         content.add_widget(end_time_box)
 
-        # Reminder (Optional)
+        # Reminder Section
+        content.add_widget(MDLabel(
+            text="🔔 Reminder",
+            font_style="Subtitle1",
+            size_hint_y=None,
+            height=dp(30),
+            bold=True
+        ))
+
+        # Reminder minutes before
+        reminder_minutes_box = MDBoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(56),
+            spacing=dp(8)
+        )
+
+        reminder_minutes_label = MDLabel(
+            text="Remind me before",
+            size_hint_x=0.5,
+            font_style="Body2"
+        )
+        reminder_minutes_box.add_widget(reminder_minutes_label)
+
+        self.reminder_minutes_field = MDTextField(
+            text="15",
+            hint_text="Minutes",
+            input_filter="int",
+            mode="rectangle",
+            size_hint_x=0.3,
+            size_hint_y=None,
+            height=dp(56)
+        )
+        reminder_minutes_box.add_widget(self.reminder_minutes_field)
+
+        reminder_min_label = MDLabel(
+            text="min",
+            size_hint_x=0.2,
+            font_style="Caption"
+        )
+        reminder_minutes_box.add_widget(reminder_min_label)
+        content.add_widget(reminder_minutes_box)
+
+        # Reminder time display
         reminder_box = MDBoxLayout(
             orientation='horizontal',
             size_hint_y=None,
@@ -170,35 +320,45 @@ class CreateTaskDialog(BaseDialog):
         )
 
         reminder_label = MDLabel(
-            text="Reminder 🔔",
+            text="Reminder Time",
             size_hint_x=0.4,
             font_style="Body2",
             theme_text_color="Hint"
         )
         reminder_box.add_widget(reminder_label)
 
-        self.reminder_btn = MDFlatButton(
-            text="Optional ⏰",
+        self.reminder_time_label = MDLabel(
+            text="Set start time first",
             size_hint_x=0.6,
-            on_release=self.show_reminder_picker
+            font_style="Caption",
+            theme_text_color="Hint"
         )
-        reminder_box.add_widget(self.reminder_btn)
+        reminder_box.add_widget(self.reminder_time_label)
         content.add_widget(reminder_box)
 
         # Motivation (Optional)
         content.add_widget(MDLabel(
-            text="💪 Motivation (optional)",
-            font_style="Subtitle2",
+            text="💪 Motivation Quote",
+            font_style="Subtitle1",
+            size_hint_y=None,
+            height=dp(30),
+            bold=True
+        ))
+
+        content.add_widget(MDLabel(
+            text="A motivational message to inspire you when reminder triggers",
+            font_style="Caption",
             size_hint_y=None,
             height=dp(20),
             theme_text_color="Hint"
         ))
 
         self.motivation_field = MDTextField(
-            hint_text='"You got this!" or "Stay focused!"',
+            hint_text='e.g., "You got this! Stay focused!"',
             mode="rectangle",
+            multiline=True,
             size_hint_y=None,
-            height=dp(56)
+            height=dp(80)
         )
         content.add_widget(self.motivation_field)
 
@@ -226,20 +386,45 @@ class CreateTaskDialog(BaseDialog):
 
     def show_start_time_picker(self, *args):
         """Show time picker for start time"""
+        now = datetime.now()
         time_dialog = MDTimePicker()
+        time_dialog.set_time(now)
         time_dialog.bind(on_save=self.on_start_time_save)
         time_dialog.open()
 
     def on_start_time_save(self, instance, time):
-        """Save start time"""
+        """Save start time and update reminder"""
         time_str = time.strftime(TIME_FORMAT)
         self.task_data['start_time'] = time_str
         self.start_time_btn.text = f"{time_str} 🕐"
         self.start_time_btn.md_bg_color = Colors.SUCCESS_GREEN
+        self.update_reminder_time()
+
+    def update_reminder_time(self):
+        """Calculate and display reminder time based on start time and minutes before"""
+        if self.task_data['start_time']:
+            try:
+                minutes_before = int(self.reminder_minutes_field.text or "15")
+                minutes_before = max(1, min(minutes_before, 120))
+
+                start_time = datetime.strptime(self.task_data['start_time'], TIME_FORMAT)
+                reminder_time = start_time - timedelta(minutes=minutes_before)
+                reminder_str = reminder_time.strftime(TIME_FORMAT)
+
+                self.task_data['reminder'] = reminder_str
+                self.task_data['reminder_minutes_before'] = minutes_before
+                self.reminder_time_label.text = f"⏰ {reminder_str} ({minutes_before} min before)"
+                self.reminder_time_label.theme_text_color = "Primary"
+
+            except Exception as e:
+                print(f"Error calculating reminder: {e}")
+                self.reminder_time_label.text = "Error calculating time"
 
     def show_end_time_picker(self, *args):
         """Show time picker for end time"""
+        now = datetime.now()
         time_dialog = MDTimePicker()
+        time_dialog.set_time(now)
         time_dialog.bind(on_save=self.on_end_time_save)
         time_dialog.open()
 
@@ -249,32 +434,17 @@ class CreateTaskDialog(BaseDialog):
         self.task_data['end_time'] = time_str
         self.end_time_btn.text = f"{time_str} 🕐"
 
-    def show_reminder_picker(self, *args):
-        """Show time picker for reminder"""
-        time_dialog = MDTimePicker()
-        time_dialog.bind(on_save=self.on_reminder_save)
-        time_dialog.open()
-
-    def on_reminder_save(self, instance, time):
-        """Save reminder time"""
-        time_str = time.strftime(TIME_FORMAT)
-        self.task_data['reminder'] = time_str
-        self.reminder_btn.text = f"{time_str} 🔔"
-
     def validate(self):
         """Validate required fields"""
-        # Check task name
         if not self.task_data['name']:
             return False, "Task name is required"
 
         if len(self.task_data['name']) > 500:
             return False, "Task name too long (max 500 characters)"
 
-        # Check start time
         if not self.task_data['start_time']:
             return False, "Start time is required"
 
-        # Check end time logic
         if self.task_data['end_time']:
             try:
                 start = datetime.strptime(self.task_data['start_time'], TIME_FORMAT)
@@ -284,7 +454,13 @@ class CreateTaskDialog(BaseDialog):
             except:
                 return False, "Invalid time format"
 
-        # Check motivation length
+        try:
+            minutes = int(self.reminder_minutes_field.text or "15")
+            if minutes < 1 or minutes > 120:
+                return False, "Reminder must be between 1-120 minutes before"
+        except ValueError:
+            return False, "Invalid reminder minutes"
+
         motivation = self.motivation_field.text.strip()
         if motivation and len(motivation) > 500:
             return False, "Motivation too long (max 500 characters)"
@@ -293,21 +469,18 @@ class CreateTaskDialog(BaseDialog):
 
     def on_create_task(self, *args):
         """Create the task"""
-        # Get all field values
+        self.update_reminder_time()
         self.task_data['description'] = self.description_field.text.strip()
         self.task_data['motivation'] = self.motivation_field.text.strip()
 
-        # Validate
         valid, error = self.validate()
         if not valid:
             toast(error)
             return
 
         try:
-            # Call callback with task data
             self.callback(self.task_data)
             self.dismiss()
-
         except ValueError as e:
             toast(f"Error: {e}")
         except Exception as e:
@@ -434,7 +607,9 @@ class TimePickerDialog:
         self.title = title
 
     def show(self):
+        now = datetime.now()
         time_dialog = MDTimePicker()
+        time_dialog.set_time(now)
         time_dialog.bind(on_save=self.on_save)
         time_dialog.open()
 
@@ -459,7 +634,6 @@ class RecurrenceDialog(BaseDialog):
             padding=dp(16)
         )
 
-        # Recurrence type buttons
         content.add_widget(MDLabel(
             text="Repeat:",
             font_style="Subtitle1",
@@ -467,7 +641,6 @@ class RecurrenceDialog(BaseDialog):
             height=dp(30)
         ))
 
-        # Radio-like options
         options = [
             ("Today (Daily)", RECURRENCE_TODAY),
             ("This Week (Weekly)", RECURRENCE_WEEK),
@@ -489,7 +662,6 @@ class RecurrenceDialog(BaseDialog):
             self.option_buttons[value] = btn
             content.add_widget(btn)
 
-        # Custom interval field
         self.interval_field = MDTextField(
             hint_text="Every X days",
             text=str(self.current_interval),
@@ -521,7 +693,6 @@ class RecurrenceDialog(BaseDialog):
         self.selected_type = recurrence_type
         self.interval_field.disabled = recurrence_type != RECURRENCE_CUSTOM
 
-        # Update button colors
         for value, btn in self.option_buttons.items():
             if value == recurrence_type:
                 btn.md_bg_color = Colors.PRIMARY_BLUE

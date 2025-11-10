@@ -1,8 +1,7 @@
 from kivymd.uix.recycleview import RecycleView
 from kivymd.uix.recycleview.views import RecycleDataViewBehavior
 from kivymd.uix.recycleboxlayout import RecycleBoxLayout
-from kivymd.uix.recyclegridlayout import RecycleGridLayout
-from kivy.properties import BooleanProperty, StringProperty, NumericProperty, ObjectProperty
+from kivy.properties import BooleanProperty, StringProperty, NumericProperty
 from kivy.metrics import dp
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
@@ -27,11 +26,6 @@ class RecyclableTaskItem(RecycleDataViewBehavior, MDBoxLayout):
     is_subtask = BooleanProperty(False)
     index = NumericProperty(0)
 
-    # Callbacks
-    on_task_click = ObjectProperty(None)
-    on_toggle_complete = ObjectProperty(None)
-    on_delete = ObjectProperty(None)
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
@@ -39,6 +33,11 @@ class RecyclableTaskItem(RecycleDataViewBehavior, MDBoxLayout):
         self.height = dp(90)
         self.padding = [dp(12), dp(8), dp(8), dp(8)]
         self.spacing = dp(12)
+
+        # Store callbacks as instance variables
+        self._on_task_click = None
+        self._on_toggle_complete = None
+        self._on_delete = None
 
         # Background
         with self.canvas.before:
@@ -64,10 +63,12 @@ class RecyclableTaskItem(RecycleDataViewBehavior, MDBoxLayout):
         self.task_completed = data.get('task_completed', False)
         self.is_subtask = data.get('is_subtask', False)
 
-        # Store callbacks
-        self.on_task_click = data.get('on_task_click')
-        self.on_toggle_complete = data.get('on_toggle_complete')
-        self.on_delete = data.get('on_delete')
+        # Store callbacks as instance variables
+        self._on_task_click = data.get('on_task_click')
+        self._on_toggle_complete = data.get('on_toggle_complete')
+        self._on_delete = data.get('on_delete')
+
+        print(f"✅ RecyclableTaskItem refresh: ID={self.task_id}, has_delete={self._on_delete is not None}")
 
         # Rebuild UI with new data
         self.clear_widgets()
@@ -170,15 +171,17 @@ class RecyclableTaskItem(RecycleDataViewBehavior, MDBoxLayout):
 
         self.add_widget(content_layout)
 
-        # Delete button
-        delete_btn = MDIconButton(
+        # Delete button - Using instance variable callback
+        self.delete_btn = MDIconButton(
             icon="delete",
-            theme_text_color="Hint",
+            theme_text_color="Custom",
+            text_color=Colors.DANGER_RED,
             size_hint=(None, None),
-            size=(dp(40), dp(40)),
-            on_release=self.on_delete_click
+            size=(dp(40), dp(40))
         )
-        self.add_widget(delete_btn)
+        # Bind directly to the button's on_release event
+        self.delete_btn.bind(on_release=self.on_delete_click)
+        self.add_widget(self.delete_btn)
 
     def _get_time_text(self):
         if self.task_start_time and self.task_end_time:
@@ -198,22 +201,37 @@ class RecyclableTaskItem(RecycleDataViewBehavior, MDBoxLayout):
         return recurrence_icons.get(self.task_recurrence, "🔄 Repeating")
 
     def on_checkbox_active(self, checkbox, value):
-        if self.on_toggle_complete:
-            self.on_toggle_complete(self.task_id, value)
+        """Handle checkbox toggle"""
+        if self._on_toggle_complete:
+            self._on_toggle_complete(self.task_id, value)
 
-    def on_delete_click(self, *args):
-        if self.on_delete:
-            self.on_delete(self.task_id)
+    def on_delete_click(self, button_instance):
+        """Handle delete button click - FIXED with instance variable"""
+        print(f"🗑️ RecyclableTaskItem: Delete clicked for task {self.task_id}")
+        print(f"🗑️ RecyclableTaskItem: Delete callback exists: {self._on_delete is not None}")
+
+        if self._on_delete:
+            print(f"🗑️ RecyclableTaskItem: Calling delete callback")
+            self._on_delete(self.task_id)
+        else:
+            print(f"⚠️ RecyclableTaskItem: No delete callback set")
+            from kivymd.toast import toast
+            toast("Delete function not available")
 
     def on_touch_down(self, touch):
+        """Handle touch events"""
         if self.collide_point(*touch.pos):
-            for child in self.children:
-                if child.collide_point(*touch.pos):
-                    if isinstance(child, (MDCheckbox, MDIconButton)):
-                        return super().on_touch_down(touch)
+            # Check if touch is on checkbox
+            if hasattr(self, 'checkbox') and self.checkbox.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
 
-            if self.on_task_click:
-                self.on_task_click(self.task_id)
+            # Check if touch is on delete button
+            if hasattr(self, 'delete_btn') and self.delete_btn.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
+
+            # Touch on task content - open details
+            if self._on_task_click:
+                self._on_task_click(self.task_id)
             return True
         return super().on_touch_down(touch)
 
@@ -253,6 +271,10 @@ class VirtualTaskList(RecycleView):
         """
         self.data = []
 
+        print(f"🔄 VirtualTaskList loading {len(tasks)} tasks")
+        print(f"🔄 Callbacks: {list(callbacks.keys())}")
+        print(f"🔄 on_delete callback exists: {callbacks.get('on_delete') is not None}")
+
         for task in tasks:
             task_data = {
                 'task_id': task.id,
@@ -289,6 +311,7 @@ class VirtualTaskList(RecycleView):
                 self.data.append(subtask_data)
 
         self.refresh_from_data()
+        print(f"✅ VirtualTaskList loaded {len(self.data)} items")
 
     def update_task_completion(self, task_id, completed):
         """Update specific task completion status"""

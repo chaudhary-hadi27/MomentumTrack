@@ -2,7 +2,7 @@ from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
 from kivymd.uix.selectioncontrol import MDCheckbox
 from kivymd.uix.button import MDIconButton
-from kivy.properties import StringProperty, BooleanProperty, NumericProperty, ObjectProperty
+from kivy.properties import StringProperty, BooleanProperty, NumericProperty
 from kivy.metrics import dp
 from kivy.graphics import Color, RoundedRectangle
 from kivymd.app import MDApp
@@ -19,11 +19,13 @@ class TaskItem(MDBoxLayout):
     task_motivation = StringProperty("")
     task_completed = BooleanProperty(False)
     is_subtask = BooleanProperty(False)
-    on_task_click = ObjectProperty(None)
-    on_toggle_complete = ObjectProperty(None)
-    on_delete = ObjectProperty(None)
 
-    def __init__(self, **kwargs):
+    def __init__(self, on_task_click=None, on_toggle_complete=None, on_delete=None, **kwargs):
+        # Store callbacks as instance variables BEFORE calling super().__init__
+        self._on_task_click = on_task_click
+        self._on_toggle_complete = on_toggle_complete
+        self._on_delete = on_delete
+
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
@@ -51,6 +53,9 @@ class TaskItem(MDBoxLayout):
         self.bind(pos=self._update_rect, size=self._update_rect)
         self.update_theme_colors()
         self.build_ui()
+
+        # Debug log
+        print(f"✅ TaskItem created: ID={self.task_id}, has_delete_callback={self._on_delete is not None}")
 
     def update_theme_colors(self):
         """Update colors based on current theme - optimized"""
@@ -180,15 +185,17 @@ class TaskItem(MDBoxLayout):
 
         self.add_widget(content_layout)
 
-        # Delete button
-        delete_btn = MDIconButton(
+        # Delete button - Using instance variable callback
+        self.delete_btn = MDIconButton(
             icon="delete",
-            theme_text_color="Hint",
+            theme_text_color="Custom",
+            text_color=Colors.DANGER_RED,
             size_hint=(None, None),
-            size=(dp(40), dp(40)),
-            on_release=self.on_delete_click
+            size=(dp(40), dp(40))
         )
-        self.add_widget(delete_btn)
+        # Bind directly to the button's on_release event
+        self.delete_btn.bind(on_release=self.on_delete_click)
+        self.add_widget(self.delete_btn)
 
     def _get_time_text(self):
         """Get formatted time text"""
@@ -210,8 +217,10 @@ class TaskItem(MDBoxLayout):
         return recurrence_icons.get(self.task_recurrence, "🔄 Repeating")
 
     def on_checkbox_active(self, checkbox, value):
-        if self.on_toggle_complete:
-            self.on_toggle_complete(self.task_id, value)
+        """Handle checkbox toggle"""
+        print(f"✅ Checkbox toggled for task {self.task_id}: {value}")
+        if self._on_toggle_complete:
+            self._on_toggle_complete(self.task_id, value)
         self.update_completed_style(value)
 
     def update_completed_style(self, completed):
@@ -224,20 +233,33 @@ class TaskItem(MDBoxLayout):
             is_dark = app.theme_cls.theme_style == "Dark"
             self._update_label_colors(is_dark)
 
-    def on_delete_click(self, *args):
-        if self.on_delete:
-            self.on_delete(self.task_id)
+    def on_delete_click(self, button_instance):
+        """Handle delete button click - FIXED with instance variable"""
+        print(f"🗑️ Delete button clicked for task {self.task_id}")
+        print(f"🗑️ Delete callback exists: {self._on_delete is not None}")
+
+        if self._on_delete:
+            print(f"🗑️ Calling delete callback for task {self.task_id}")
+            self._on_delete(self.task_id)
+        else:
+            print(f"⚠️ No delete callback set for task {self.task_id}")
+            from kivymd.toast import toast
+            toast("Delete function not available")
 
     def on_touch_down(self, touch):
-        # Check if touch is not on checkbox or delete button
+        """Handle touch events"""
         if self.collide_point(*touch.pos):
-            for child in self.children:
-                if child.collide_point(*touch.pos):
-                    if isinstance(child, (MDCheckbox, MDIconButton)):
-                        return super().on_touch_down(touch)
+            # Check if touch is on checkbox
+            if self.checkbox.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
 
-            # Touch is on task content area
-            if self.on_task_click:
-                self.on_task_click(self.task_id)
+            # Check if touch is on delete button
+            if self.delete_btn.collide_point(*touch.pos):
+                return super().on_touch_down(touch)
+
+            # Touch is on task content area - open details
+            if self._on_task_click:
+                print(f"📱 Task clicked: {self.task_id}")
+                self._on_task_click(self.task_id)
             return True
         return super().on_touch_down(touch)

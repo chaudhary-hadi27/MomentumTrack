@@ -7,6 +7,7 @@ from screens.task_detail_screen import TaskDetailScreen
 from screens.settings_screen import SettingsScreen
 from utils.constants import APP_NAME
 from utils.notification_manager import NotificationManager
+from utils.backup_manager import BackupManager
 from database.db_manager import DatabaseManager
 from utils.theme_manager import get_theme_manager
 from datetime import datetime, time
@@ -23,6 +24,7 @@ class MomentumTrackApp(MDApp):
 
         self.db = DatabaseManager()
         self.notification_manager = NotificationManager(self.db)
+        self.backup_manager = BackupManager(self.db)
         self.last_cleanup_date = None
 
         # Initialize theme manager
@@ -39,6 +41,14 @@ class MomentumTrackApp(MDApp):
         optimizer = DatabaseOptimizer()
         optimizer.optimize_all()
 
+        # Create auto backup on startup
+        print("📦 Creating automatic backup...")
+        backup_file = self.backup_manager.auto_backup()
+        if backup_file:
+            print(f"✅ Auto backup created: {backup_file}")
+        else:
+            print("⚠️ Auto backup failed")
+
         # Main screen
         main_screen = Screen(name='main')
         self.main_screen_widget = MainScreen()
@@ -47,13 +57,15 @@ class MomentumTrackApp(MDApp):
         main_screen.add_widget(self.main_screen_widget)
         self.screen_manager.add_widget(main_screen)
 
-
         # Start notification manager
         self.notification_manager.start()
 
         # Schedule daily cleanup check (every hour)
-        Clock.schedule_interval(self.check_daily_cleanup, 3600)  # Check every hour
-        self.check_daily_cleanup(0)  # Initial check
+        Clock.schedule_interval(self.check_daily_cleanup, 3600)
+        self.check_daily_cleanup(0)
+
+        # Schedule weekly backup (every 7 days)
+        Clock.schedule_interval(lambda dt: self.backup_manager.auto_backup(), 604800)
 
         return self.screen_manager
 
@@ -61,18 +73,14 @@ class MomentumTrackApp(MDApp):
         """Check if it's a new day and cleanup completed daily tasks"""
         current_date = datetime.now().date()
 
-        # If it's a new day, cleanup
         if self.last_cleanup_date != current_date:
-            # Check if it's past midnight (new day)
             current_time = datetime.now().time()
             midnight = time(0, 0)
 
-            # Only cleanup after midnight of new day
-            if self.last_cleanup_date is not None:  # Skip first run
+            if self.last_cleanup_date is not None:
                 print(f"🧹 Daily cleanup: Removing completed tasks from daily lists")
                 self.db.cleanup_completed_daily_tasks()
 
-                # Refresh main screen if on main screen
                 if self.screen_manager.current == 'main':
                     self.main_screen_widget.load_tasks()
 
@@ -115,7 +123,11 @@ class MomentumTrackApp(MDApp):
             self.screen_manager.remove_widget(self.screen_manager.get_screen('settings'))
 
     def on_stop(self):
+        """Create backup on app close"""
+        print("📦 Creating exit backup...")
+        self.backup_manager.auto_backup()
         self.notification_manager.stop()
+        print("👋 App closed")
 
 
 if __name__ == '__main__':
