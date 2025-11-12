@@ -3,194 +3,56 @@ from kivymd.uix.toolbar import MDTopAppBar
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.list import MDList, TwoLineIconListItem, IconLeftWidget
-from kivymd.uix.button import MDIconButton, MDFloatingActionButton, MDFlatButton
+from kivymd.uix.button import MDIconButton, MDFloatingActionButton
 from kivymd.uix.navigationdrawer import MDNavigationDrawer, MDNavigationLayout
-from kivymd.uix.spinner import MDSpinner
 from kivy.metrics import dp
-from kivy.graphics import Color, RoundedRectangle, Line
+from kivy.graphics import Color, RoundedRectangle
 from kivy.clock import Clock
 from kivymd.app import MDApp
 from kivymd.toast import toast
 from components.task_item import TaskItem
 from components.list_swiper import ListSwiper
+from components.list_tabs import ListTabs
 from components.dialogs import CreateTaskDialog, EditListDialog, ConfirmDialog, AddTaskDialog
-from database.db_manager import DatabaseManager
 from database.models import TaskCategory
-from utils.constants import Colors, MAX_TASKS_PER_LIST
-
-
-class ListTabs(MDBoxLayout):
-    """Clean horizontal tabs like Google Tasks"""
-
-    def __init__(self, lists=None, on_list_select=None, on_add_list=None, **kwargs):
-        super().__init__(**kwargs)
-        self.orientation = 'horizontal'
-        self.size_hint_y = None
-        self.height = dp(48)
-        self.padding = [dp(4), 0]
-        self.spacing = 0
-
-        self.lists = lists or []
-        self.on_list_select = on_list_select
-        self.on_add_list = on_add_list
-        self.current_list_id = None
-        self.tab_buttons = {}
-
-        # Add bottom border
-        with self.canvas.after:
-            self.border_color = Color(0.9, 0.9, 0.9, 1)
-            self.border_line = Line(width=1)
-
-        self.bind(pos=self._update_border, size=self._update_border)
-
-        # Scrollable container
-        self.scroll = MDScrollView(
-            do_scroll_y=False,
-            do_scroll_x=True,
-            bar_width=0,
-            size_hint_x=1
-        )
-
-        self.tab_container = MDBoxLayout(
-            orientation='horizontal',
-            size_hint_x=None,
-            spacing=0,
-            padding=[dp(8), 0]
-        )
-        self.tab_container.bind(minimum_width=self.tab_container.setter('width'))
-
-        self.scroll.add_widget(self.tab_container)
-        self.add_widget(self.scroll)
-
-        # Add button - minimal icon style
-        self.add_btn = MDIconButton(
-            icon="plus",
-            size_hint=(None, None),
-            size=(dp(48), dp(48)),
-            on_release=lambda x: self.on_add_list() if self.on_add_list else None
-        )
-        self.add_widget(self.add_btn)
-
-        self.update_tabs()
-
-    def _update_border(self, *args):
-        """Update bottom border line"""
-        self.border_line.points = [
-            self.x, self.y,
-            self.x + self.width, self.y
-        ]
-        # Update border color based on theme
-        app = MDApp.get_running_app()
-        if app and app.theme_cls.theme_style == "Dark":
-            self.border_color.rgba = (0.3, 0.3, 0.3, 1)
-        else:
-            self.border_color.rgba = (0.9, 0.9, 0.9, 1)
-
-    def update_tabs(self):
-        """Create clean tab buttons"""
-        self.tab_container.clear_widgets()
-        self.tab_buttons.clear()
-
-        for lst in self.lists:
-            # Create tab button container
-            tab_wrapper = MDBoxLayout(
-                orientation='vertical',
-                size_hint=(None, None),
-                size=(dp(120), dp(48)),
-                spacing=0
-            )
-
-            # Tab button
-            btn = MDFlatButton(
-                text=lst.name,
-                size_hint=(None, None),
-                size=(dp(120), dp(45)),
-                on_release=lambda x, lid=lst.id: self._on_tab_click(lid),
-                md_bg_color=(0, 0, 0, 0)  # Transparent background
-            )
-
-            # Bottom indicator line (will be drawn in canvas)
-            tab_wrapper.btn = btn
-            tab_wrapper.list_id = lst.id
-
-            with tab_wrapper.canvas.after:
-                tab_wrapper.indicator_color = Color(0, 0, 0, 0)  # Hidden by default
-                tab_wrapper.indicator = Line(width=3)
-
-            tab_wrapper.bind(pos=self._update_indicator, size=self._update_indicator)
-            tab_wrapper.add_widget(btn)
-
-            self.tab_buttons[lst.id] = tab_wrapper
-            self.tab_container.add_widget(tab_wrapper)
-
-        if self.current_list_id and self.current_list_id in self.tab_buttons:
-            self.highlight_tab(self.current_list_id)
-
-    def _update_indicator(self, instance, value):
-        """Update indicator line position"""
-        if hasattr(instance, 'indicator'):
-            # Draw line at bottom of tab
-            instance.indicator.points = [
-                instance.x, instance.y,
-                instance.x + instance.width, instance.y
-            ]
-
-    def highlight_tab(self, list_id):
-        """Highlight selected tab with minimal style"""
-        self.current_list_id = list_id
-        app = MDApp.get_running_app()
-        is_dark = app and app.theme_cls.theme_style == "Dark"
-
-        for lid, tab_wrapper in self.tab_buttons.items():
-            btn = tab_wrapper.btn
-
-            if lid == list_id:
-                # Active tab - Blue text and indicator
-                btn.text_color = Colors.PRIMARY_BLUE
-                tab_wrapper.indicator_color.rgba = Colors.PRIMARY_BLUE
-            else:
-                # Inactive tab - Gray text, no indicator
-                if is_dark:
-                    btn.text_color = (0.7, 0.7, 0.7, 1)
-                else:
-                    btn.text_color = (0.4, 0.4, 0.4, 1)
-                tab_wrapper.indicator_color.rgba = (0, 0, 0, 0)  # Hide indicator
-
-    def _on_tab_click(self, list_id):
-        """Handle tab click"""
-        self.highlight_tab(list_id)
-        if self.on_list_select:
-            self.on_list_select(list_id)
-
-    def set_lists(self, lists):
-        """Update lists and rebuild tabs"""
-        self.lists = lists
-        self.update_tabs()
-
-    def select_list(self, list_id):
-        """Programmatically select a list"""
-        self.highlight_tab(list_id)
+from services.task_service import TaskService, ListService
+from utils.constants import Colors
+from utils.event_system import event_bus, TaskEvents
 
 
 class MainScreen(MDScreen):
-    def __init__(self, **kwargs):
+    def __init__(self, task_service: TaskService, list_service: ListService, **kwargs):
         super().__init__(**kwargs)
-        self.db = DatabaseManager()
+
+        # USE SERVICE LAYER instead of direct DB access!
+        self.task_service = task_service
+        self.list_service = list_service
+
+        # State
         self.current_category = TaskCategory.DAILY
         self.current_list_id = None
         self.current_list_name = ""
         self.current_list_index = 0
         self.category_lists = {}
         self.list_widgets = {}
+
+        # Callbacks
         self.open_settings = None
+
+        # UI components
         self.toolbar = None
         self.list_tabs = None
         self.loading_spinner = None
+
+        # Theme management
         self._theme_bound = False
         self._theme_update_scheduled = False
 
         self.build_ui()
         self.load_initial_data()
+
+        # Setup event listeners
+        self._setup_event_listeners()
 
         # Bind theme changes
         app = MDApp.get_running_app()
@@ -198,14 +60,45 @@ class MainScreen(MDScreen):
             app.theme_cls.bind(theme_style=self.on_theme_change)
             self._theme_bound = True
 
+    def _setup_event_listeners(self):
+        """Setup event listeners for reactive updates"""
+        # Listen to task events
+        self.task_service.events.on(TaskEvents.TASK_CREATED, self.on_task_event)
+        self.task_service.events.on(TaskEvents.TASK_DELETED, self.on_task_event)
+        self.task_service.events.on(TaskEvents.TASK_UPDATED, self.on_task_event)
+        self.task_service.events.on(TaskEvents.TASK_COMPLETED, self.on_task_event)
+
+        # Listen to list events
+        self.list_service.events.on(TaskEvents.LIST_CREATED, self.on_list_event)
+        self.list_service.events.on(TaskEvents.LIST_DELETED, self.on_list_event)
+        self.list_service.events.on(TaskEvents.LIST_UPDATED, self.on_list_event)
+
+    def on_task_event(self, *args):
+        """Handle task events - reload current list"""
+        if self.current_list_id:
+            # Use Clock to schedule UI update on main thread
+            Clock.schedule_once(lambda dt: self.load_tasks_for_list(self.current_list_id), 0)
+
+    def on_list_event(self, *args):
+        """Handle list events - reload category"""
+        Clock.schedule_once(lambda dt: self.reload_category_data(), 0)
+
     def on_pre_leave(self):
-        """Unbind theme when leaving screen - CRITICAL for preventing leaks"""
+        """Unbind theme when leaving screen"""
         if self._theme_bound:
             app = MDApp.get_running_app()
             if app:
                 app.theme_cls.unbind(theme_style=self.on_theme_change)
                 self._theme_bound = False
-            print("🔓 MainScreen: Theme unbound")
+
+        # Cleanup event listeners
+        self.task_service.events.off(TaskEvents.TASK_CREATED)
+        self.task_service.events.off(TaskEvents.TASK_DELETED)
+        self.task_service.events.off(TaskEvents.TASK_UPDATED)
+        self.task_service.events.off(TaskEvents.TASK_COMPLETED)
+        self.list_service.events.off(TaskEvents.LIST_CREATED)
+        self.list_service.events.off(TaskEvents.LIST_DELETED)
+        self.list_service.events.off(TaskEvents.LIST_UPDATED)
 
     def on_pre_enter(self):
         """Re-bind theme when entering screen"""
@@ -214,7 +107,6 @@ class MainScreen(MDScreen):
             if app:
                 app.theme_cls.bind(theme_style=self.on_theme_change)
                 self._theme_bound = True
-            print("🔒 MainScreen: Theme bound")
 
     def update_toolbar_colors(self):
         """Update toolbar colors based on theme"""
@@ -227,9 +119,9 @@ class MainScreen(MDScreen):
             self.toolbar.specific_text_color = Colors.DARK_TEXT
 
     def on_theme_change(self, instance, value):
-        """Handle theme changes - BATCHED to prevent multiple updates"""
+        """Handle theme changes - BATCHED"""
         if self._theme_update_scheduled:
-            return  # Already scheduled, skip
+            return
 
         self._theme_update_scheduled = True
         Clock.schedule_once(self._apply_theme_update, 0)
@@ -242,7 +134,6 @@ class MainScreen(MDScreen):
         if self.toolbar:
             self.toolbar.md_bg_color = self.get_toolbar_color()
             self.update_toolbar_colors()
-            # Rebuild action items to apply color
             self.toolbar.left_action_items = [["menu", lambda x: self.toggle_nav_drawer()]]
             self.toolbar.right_action_items = [
                 ["cog", lambda x: self.show_settings()],
@@ -253,7 +144,7 @@ class MainScreen(MDScreen):
         if self.list_tabs and self.current_list_id:
             self.list_tabs.highlight_tab(self.current_list_id)
 
-        # Update all visible task items (only current list)
+        # Update visible task items
         if self.current_list_id in self.list_widgets:
             task_list_widget = self.list_widgets[self.current_list_id]
             for child in task_list_widget.children:
@@ -268,6 +159,7 @@ class MainScreen(MDScreen):
         return Colors.LIGHT_BG
 
     def build_ui(self):
+        """Build the UI (same as before)"""
         self.nav_layout = MDNavigationLayout()
         from kivy.uix.screenmanager import ScreenManager, Screen
         screen_manager = ScreenManager()
@@ -374,10 +266,12 @@ class MainScreen(MDScreen):
             self.open_settings()
 
     def load_initial_data(self):
-        """Load initial category data"""
+        """Load initial category data - USES SERVICE LAYER"""
         try:
-            categories_data = self.db.get_all_categories_with_lists()
-            self.category_lists = {cat_id: data['lists'] for cat_id, data in categories_data.items()}
+            # Load all categories with lists
+            for cat in TaskCategory.get_all():
+                lists = self.list_service.get_lists_by_category(cat['id'])
+                self.category_lists[cat['id']] = lists
 
             if self.category_lists[TaskCategory.DAILY]:
                 self.current_category = TaskCategory.DAILY
@@ -390,18 +284,14 @@ class MainScreen(MDScreen):
 
     def build_list_swiper(self):
         """Build swiper for current category"""
-        # Clear existing slides safely
         self.list_swiper.clear_slides()
 
-        # Clear old widgets properly
         for list_id, widget in self.list_widgets.items():
             widget.clear_widgets()
 
         self.list_widgets.clear()
 
         lists = self.category_lists.get(self.current_category, [])
-
-        # Update tabs
         self.list_tabs.set_lists(lists)
 
         for idx, task_list in enumerate(lists):
@@ -428,7 +318,7 @@ class MainScreen(MDScreen):
             self.toolbar.title = cat_info['name']
 
     def load_drawer_categories(self):
-        """Load only categories in drawer"""
+        """Load categories in drawer"""
         self.drawer_list.clear_widgets()
 
         for cat in TaskCategory.get_all():
@@ -476,27 +366,22 @@ class MainScreen(MDScreen):
             self.load_tasks_for_list(task_list.id)
 
     def load_tasks_for_list(self, list_id):
-        """Load tasks for a specific list with error handling"""
+        """Load tasks - USES SERVICE LAYER with caching!"""
         if list_id not in self.list_widgets:
-            print(f"⚠️ Warning: List widget not found for list_id {list_id}")
             return
 
         task_list_widget = self.list_widgets[list_id]
         task_list_widget.clear_widgets()
 
         try:
-            tasks = self.db.get_tasks_by_list(list_id, show_completed=True)
-
-            # Show warning if tasks exceed limit
-            if len(tasks) > MAX_TASKS_PER_LIST:
-                toast(f"Showing first {MAX_TASKS_PER_LIST} of {len(tasks)} tasks")
-
-            tasks = tasks[:MAX_TASKS_PER_LIST]
-
-            print(f"📝 Loading {len(tasks)} tasks for list {list_id}")
+            # SERVICE LAYER handles caching and optimization!
+            tasks = self.task_service.get_list_tasks(
+                list_id,
+                show_completed=True,
+                use_cache=True  # Use cache for better performance
+            )
 
             for task in tasks:
-                # Create task item with ALL callbacks properly bound
                 task_item = TaskItem(
                     task_id=task.id,
                     task_title=task.title,
@@ -508,7 +393,7 @@ class MainScreen(MDScreen):
                     task_completed=task.completed,
                     on_task_click=self.open_task_details,
                     on_toggle_complete=self.toggle_task_completed,
-                    on_delete=self.delete_task  # Callback passed here
+                    on_delete=self.delete_task
                 )
 
                 task_list_widget.add_widget(task_item)
@@ -522,18 +407,13 @@ class MainScreen(MDScreen):
                         is_subtask=True,
                         on_task_click=self.open_task_details,
                         on_toggle_complete=self.toggle_task_completed,
-                        on_delete=self.delete_task  # Callback passed here
+                        on_delete=self.delete_task
                     )
-
                     subtask_item.update_theme_colors()
                     task_list_widget.add_widget(subtask_item)
 
-            print(f"✅ Successfully loaded {len(tasks)} tasks")
-
         except Exception as e:
             print(f"❌ Error loading tasks: {e}")
-            import traceback
-            traceback.print_exc()
             toast("Error loading tasks")
 
     def load_tasks(self):
@@ -542,7 +422,7 @@ class MainScreen(MDScreen):
             self.load_tasks_for_list(self.current_list_id)
 
     def show_add_task_dialog(self, *args):
-        """Show comprehensive task creation dialog"""
+        """Show task creation dialog"""
         if not self.current_list_id:
             toast("No list selected")
             return
@@ -551,14 +431,14 @@ class MainScreen(MDScreen):
         dialog.show()
 
     def add_task(self, task_data):
-        """Add new task with comprehensive data"""
+        """Add new task - USES SERVICE LAYER"""
         if not self.current_list_id:
             toast("No list selected")
             return
 
         try:
-            # Create task with all fields
-            task_id = self.db.create_task(
+            # SERVICE LAYER handles validation and events!
+            task_id = self.task_service.create_task(
                 list_id=self.current_list_id,
                 title=task_data['name'],
                 notes=task_data['description'],
@@ -569,10 +449,8 @@ class MainScreen(MDScreen):
             )
 
             if task_id:
-                self.load_tasks_for_list(self.current_list_id)
-                toast("✅ Task created successfully!")
-            else:
-                toast("Failed to create task")
+                toast("✅ Task created!")
+                # Event listener will auto-reload
 
         except ValueError as e:
             toast(f"Invalid task: {e}")
@@ -581,19 +459,16 @@ class MainScreen(MDScreen):
             toast("Failed to add task")
 
     def toggle_task_completed(self, task_id, completed):
-        """Toggle task completion"""
+        """Toggle task completion - USES SERVICE LAYER"""
         try:
-            self.db.toggle_task_completed(task_id)
-            self.load_tasks()
+            self.task_service.toggle_task_completed(task_id)
+            # Event listener will auto-reload
         except Exception as e:
             print(f"❌ Error toggling task: {e}")
             toast("Error updating task")
 
     def delete_task(self, task_id):
         """Delete task with confirmation"""
-        print(f"🗑️ MainScreen.delete_task called for task_id: {task_id}")
-
-        # Show confirmation dialog
         dialog = ConfirmDialog(
             title="Delete Task",
             message="Are you sure you want to delete this task?",
@@ -603,20 +478,13 @@ class MainScreen(MDScreen):
         dialog.show()
 
     def confirm_delete_task(self, task_id):
-        """Confirm and delete task"""
-        print(f"🗑️ Confirming delete for task_id: {task_id}")
+        """Confirm and delete task - USES SERVICE LAYER"""
         try:
-            self.db.delete_task(task_id)
-            print(f"✅ Task {task_id} deleted from database")
-
-            # Reload the current list
-            self.load_tasks()
-            toast("Task deleted successfully")
-
+            self.task_service.delete_task(task_id)
+            toast("Task deleted")
+            # Event listener will auto-reload
         except Exception as e:
             print(f"❌ Error deleting task: {e}")
-            import traceback
-            traceback.print_exc()
             toast("Error deleting task")
 
     def open_task_details(self, task_id):
@@ -658,13 +526,13 @@ class MainScreen(MDScreen):
             self.delete_current_list()
 
     def rename_list(self, new_name):
-        """Rename current list"""
+        """Rename current list - USES SERVICE LAYER"""
         if self.current_list_id:
             try:
-                self.db.update_list(self.current_list_id, new_name)
+                self.list_service.update_list(self.current_list_id, new_name)
                 self.current_list_name = new_name
-                self.reload_category_data()
                 toast("List renamed")
+                # Event listener will auto-reload
             except ValueError as e:
                 toast(f"Error: {e}")
 
@@ -683,11 +551,11 @@ class MainScreen(MDScreen):
             toast("Cannot delete the last list")
 
     def confirm_delete_list(self):
-        """Confirm and delete list"""
+        """Confirm and delete list - USES SERVICE LAYER"""
         try:
-            self.db.delete_list(self.current_list_id)
-            self.reload_category_data()
+            self.list_service.delete_list(self.current_list_id)
             toast("List deleted")
+            # Event listener will auto-reload
         except Exception as e:
             print(f"❌ Error deleting list: {e}")
             toast("Error deleting list")
@@ -698,18 +566,23 @@ class MainScreen(MDScreen):
         dialog.show()
 
     def add_list(self, name):
-        """Add new list"""
+        """Add new list - USES SERVICE LAYER"""
         try:
-            self.db.create_list(name, self.current_category)
-            self.reload_category_data()
+            self.list_service.create_list(name, self.current_category)
             toast("List created")
+            # Event listener will auto-reload
         except ValueError as e:
             toast(f"Error: {e}")
 
     def reload_category_data(self, category=None):
-        """Reload only specific category data - optimized"""
+        """Reload category data - USES SERVICE LAYER"""
         target = category or self.current_category
-        self.category_lists[target] = self.db.get_lists_by_category(target)
+
+        # Force refresh from service (bypasses cache)
+        self.category_lists[target] = self.list_service.get_lists_by_category(
+            target,
+            force_refresh=True
+        )
 
         if target == self.current_category:
             self.build_list_swiper()

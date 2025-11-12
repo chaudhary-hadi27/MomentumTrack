@@ -16,14 +16,14 @@ from database.db_manager import DatabaseManager
 from utils.helpers import format_date
 from utils.constants import Colors, TIME_FORMAT
 from datetime import datetime, timedelta
-
+from services.task_service import TaskService
 
 class TaskDetailScreen(MDScreen):
-    def __init__(self, task_id, on_back_callback, **kwargs):
+    def __init__(self, task_id, task_service: TaskService, on_back_callback, **kwargs):
         super().__init__(**kwargs)
         self.task_id = task_id
+        self.task_service = task_service  # Use service instead of db
         self.on_back_callback = on_back_callback
-        self.db = DatabaseManager()
         self.task = None
         self.toolbar = None
         self._theme_bound = False

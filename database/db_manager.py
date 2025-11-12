@@ -250,49 +250,88 @@ class DatabaseManager:
                 deleted_count = cursor.rowcount
                 print(f"🧹 Cleaned up {deleted_count} completed daily tasks")
 
-    # ===== TASK OPERATIONS =====
+    # ===== OPTIMIZED TASK OPERATIONS (NO N+1) =====
 
-    def get_tasks_by_list(self, list_id, show_completed=True):
-        """Get all tasks for a specific list"""
+    def get_tasks_by_list(self, list_id, show_completed=True, limit=None):
+        """
+        Get all tasks for a specific list with subtasks in ONE query (NO N+1!)
+
+        This uses a LEFT JOIN to fetch parent tasks and their subtasks together,
+        eliminating the N+1 query problem.
+        """
         with self.get_connection_context() as conn:
             cursor = conn.cursor()
 
+            # Build query with optional filters
             query = '''
-                SELECT id, list_id, title, notes, due_date, start_time, end_time, 
-                       reminder_time, completed, parent_id, position, recurrence_type,
-                       recurrence_interval, last_completed_date, motivation, created_at
-                FROM tasks
-                WHERE list_id = ? AND parent_id IS NULL
+                SELECT 
+                    p.id, p.list_id, p.title, p.notes, p.due_date, p.start_time, p.end_time,
+                    p.reminder_time, p.completed, p.parent_id, p.position, p.recurrence_type,
+                    p.recurrence_interval, p.last_completed_date, p.motivation, p.created_at,
+                    s.id as sub_id, s.title as sub_title, s.completed as sub_completed,
+                    s.position as sub_position, s.created_at as sub_created_at
+                FROM tasks p
+                LEFT JOIN tasks s ON s.parent_id = p.id
+                WHERE p.list_id = ? AND p.parent_id IS NULL
             '''
 
+            params = [list_id]
+
             if not show_completed:
-                query += ' AND completed = 0'
+                query += ' AND p.completed = 0'
 
-            query += ' ORDER BY completed ASC, position ASC, created_at DESC'
+            query += ' ORDER BY p.completed ASC, p.position ASC, p.created_at DESC, s.position ASC'
 
-            cursor.execute(query, (list_id,))
+            if limit:
+                query += ' LIMIT ?'
+                params.append(limit)
+
+            cursor.execute(query, params)
             rows = cursor.fetchall()
 
-            tasks = []
-            for row in rows:
-                try:
-                    task = Task(
-                        id=row[0], list_id=row[1], title=row[2], notes=row[3],
-                        due_date=row[4], start_time=row[5], end_time=row[6],
-                        reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
-                        position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
-                        last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
-                    )
-                    task.subtasks = self.get_subtasks(task.id)
-                    tasks.append(task)
-                except ValueError as e:
-                    print(f"⚠️ Skipping invalid task {row[0]}: {e}")
-                    continue
+            # Parse results and group subtasks with parent tasks
+            tasks_dict = {}
 
-            return tasks
+            for row in rows:
+                task_id = row[0]
+
+                # Create task if not exists
+                if task_id not in tasks_dict:
+                    try:
+                        task = Task(
+                            id=row[0], list_id=row[1], title=row[2], notes=row[3],
+                            due_date=row[4], start_time=row[5], end_time=row[6],
+                            reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
+                            position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
+                            last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
+                        )
+                        task.subtasks = []
+                        tasks_dict[task_id] = task
+                    except ValueError as e:
+                        print(f"⚠️ Skipping invalid task {row[0]}: {e}")
+                        continue
+
+                # Add subtask if exists
+                if row[16] is not None:  # sub_id
+                    try:
+                        subtask = Task(
+                            id=row[16],
+                            list_id=row[1],
+                            title=row[17],
+                            completed=bool(row[18]),
+                            parent_id=task_id,
+                            position=row[19],
+                            created_at=row[20]
+                        )
+                        tasks_dict[task_id].subtasks.append(subtask)
+                    except ValueError as e:
+                        print(f"⚠️ Skipping invalid subtask {row[16]}: {e}")
+                        continue
+
+            return list(tasks_dict.values())
 
     def get_subtasks(self, parent_id):
-        """Get all subtasks for a parent task"""
+        """Get all subtasks for a parent task (kept for compatibility)"""
         with self.get_connection_context() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -323,32 +362,64 @@ class DatabaseManager:
             return subtasks
 
     def get_task_by_id(self, task_id):
-        """Get a specific task"""
+        """Get a specific task with its subtasks (optimized)"""
         with self.get_connection_context() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, list_id, title, notes, due_date, start_time, end_time,
-                       reminder_time, completed, parent_id, position, recurrence_type,
-                       recurrence_interval, last_completed_date, motivation, created_at
-                FROM tasks WHERE id = ?
-            ''', (task_id,))
-            row = cursor.fetchone()
 
-            if row:
-                try:
-                    task = Task(
-                        id=row[0], list_id=row[1], title=row[2], notes=row[3],
-                        due_date=row[4], start_time=row[5], end_time=row[6],
-                        reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
-                        position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
-                        last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
-                    )
-                    task.subtasks = self.get_subtasks(task.id)
-                    return task
-                except ValueError as e:
-                    print(f"❌ Invalid task data: {e}")
-                    return None
-            return None
+            # Get parent task and subtasks in one query
+            cursor.execute('''
+                SELECT 
+                    p.id, p.list_id, p.title, p.notes, p.due_date, p.start_time, p.end_time,
+                    p.reminder_time, p.completed, p.parent_id, p.position, p.recurrence_type,
+                    p.recurrence_interval, p.last_completed_date, p.motivation, p.created_at,
+                    s.id as sub_id, s.title as sub_title, s.completed as sub_completed,
+                    s.position as sub_position, s.created_at as sub_created_at
+                FROM tasks p
+                LEFT JOIN tasks s ON s.parent_id = p.id
+                WHERE p.id = ?
+                ORDER BY s.position ASC
+            ''', (task_id,))
+
+            rows = cursor.fetchall()
+
+            if not rows:
+                return None
+
+            # First row contains parent task
+            row = rows[0]
+            try:
+                task = Task(
+                    id=row[0], list_id=row[1], title=row[2], notes=row[3],
+                    due_date=row[4], start_time=row[5], end_time=row[6],
+                    reminder_time=row[7], completed=bool(row[8]), parent_id=row[9],
+                    position=row[10], recurrence_type=row[11], recurrence_interval=row[12],
+                    last_completed_date=row[13], motivation=row[14] or "", created_at=row[15]
+                )
+                task.subtasks = []
+
+                # Add all subtasks
+                for row in rows:
+                    if row[16] is not None:  # sub_id
+                        try:
+                            subtask = Task(
+                                id=row[16],
+                                list_id=row[1],
+                                title=row[17],
+                                completed=bool(row[18]),
+                                parent_id=task_id,
+                                position=row[19],
+                                created_at=row[20]
+                            )
+                            task.subtasks.append(subtask)
+                        except ValueError as e:
+                            print(f"⚠️ Skipping invalid subtask {row[16]}: {e}")
+                            continue
+
+                return task
+
+            except ValueError as e:
+                print(f"❌ Invalid task data: {e}")
+                return None
 
     def create_task(self, list_id, title, notes="", due_date=None, start_time=None,
                     end_time=None, reminder_time=None, parent_id=None,
@@ -450,8 +521,8 @@ class DatabaseManager:
 
             return cursor.fetchall()
 
-    def search_tasks(self, query):
-        """Search tasks by title or notes"""
+    def search_tasks(self, query, limit=50):
+        """Search tasks by title or notes with limit"""
         if not query or len(query) < 2:
             return []
 
@@ -463,10 +534,10 @@ class DatabaseManager:
                        reminder_time, completed, parent_id, position, recurrence_type,
                        recurrence_interval, last_completed_date, motivation, created_at
                 FROM tasks
-                WHERE title LIKE ? OR notes LIKE ?
+                WHERE (title LIKE ? OR notes LIKE ?) AND parent_id IS NULL
                 ORDER BY completed ASC, created_at DESC
-                LIMIT 50
-            ''', (search_pattern, search_pattern))
+                LIMIT ?
+            ''', (search_pattern, search_pattern, limit))
 
             rows = cursor.fetchall()
             tasks = []
@@ -484,3 +555,45 @@ class DatabaseManager:
                     continue
 
             return tasks
+
+    # ===== BATCH OPERATIONS (NEW!) =====
+
+    def batch_update_tasks(self, updates):
+        """
+        Batch update multiple tasks in one transaction
+
+        Args:
+            updates: List of (task_id, field_dict) tuples
+
+        Example:
+            batch_update_tasks([
+                (1, {'completed': True}),
+                (2, {'title': 'New Title'}),
+            ])
+        """
+        with self.get_connection_context() as conn:
+            cursor = conn.cursor()
+
+            for task_id, fields in updates:
+                updates_list = []
+                values = []
+
+                for field, value in fields.items():
+                    updates_list.append(f'{field} = ?')
+                    values.append(value)
+
+                if updates_list:
+                    values.append(task_id)
+                    query = f'UPDATE tasks SET {", ".join(updates_list)} WHERE id = ?'
+                    cursor.execute(query, values)
+
+    def batch_delete_tasks(self, task_ids):
+        """Delete multiple tasks in one transaction"""
+        if not task_ids:
+            return
+
+        with self.get_connection_context() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join(['?' for _ in task_ids])
+            cursor.execute(f'DELETE FROM tasks WHERE id IN ({placeholders})', task_ids)
+            print(f"🗑️ Deleted {cursor.rowcount} tasks")
